@@ -123,7 +123,7 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
         force = self.force_mag * action[0]
         costheta = math.cos(theta)
         sintheta = math.sin(theta)
-
+        # print(action, type(action))
         # For the interested reader:
         # https://coneural.org/florian/papers/05_cart_pole.pdf
         temp = (
@@ -209,7 +209,31 @@ class CartPoleEnv(gym.Env[np.ndarray, Union[int, np.ndarray]]):
             return np.array(self.state, dtype=np.float32)
         else:
             return np.array(self.state, dtype=np.float32), {}
-
+    
+    def seed(self,
+        seed: Optional[int] = None,
+        ):
+        super().reset(seed=seed)
+    
+    def reset_at_state(
+        self,
+        state: np.ndarray = None,
+        *,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None
+        ):
+        super().reset(seed=seed)
+        if state is None:
+           raise TypeError
+        self.state = state
+        self.steps_beyond_done = None
+        self.time_step = 0
+        if not return_info:
+            return np.array(self.state, dtype=np.float32)
+        else:
+            return np.array(self.state, dtype=np.float32), {}
+        
     def get_masked_image(self, image):
         mask = (image[:, :, 0] == 129) & (image[:, :, 1] == 132) & (image[:, :, 2] == 203)
         center = np.argwhere(mask).mean(axis=0).astype(int)
