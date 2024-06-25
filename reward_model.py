@@ -159,8 +159,8 @@ class RewardModel:
                 ):
         
         # train data is trajectories, must process to sa and s..   
-        self.ds = ds
-        self.da = da
+        self.ds = ds #dimension of state
+        self.da = da #dimension of action
         self.de = ensemble_size
         self.lr = lr
         self.ensemble = []
@@ -454,17 +454,17 @@ class RewardModel:
                 # get logits
                 r_hat1 = self.r_hat_member(sa_t_1, member=member)
                 r_hat2 = self.r_hat_member(sa_t_2, member=member)
-                r_hat1 = r_hat1.sum(axis=1)
+                r_hat1 = r_hat1.sum(axis=1)# Why do you sum the logits here
                 r_hat2 = r_hat2.sum(axis=1)
                 r_hat = torch.cat([r_hat1, r_hat2], axis=-1)                
-                _, predicted = torch.max(r_hat.data, 1)
+                _, predicted = torch.max(r_hat.data, 1)#Here again dimensions a little unclear check up
                 correct = (predicted == labels).sum().item()
                 ensemble_acc[member] += correct
                 
         ensemble_acc = ensemble_acc / total
         return np.mean(ensemble_acc)
     
-    def get_queries(self, mb_size=20):
+    def get_queries(self, mb_size=20):#Get state action tuples for both the buffers, along with labels from the main train set
         len_traj, max_len = len(self.inputs[0]), len(self.inputs)
         
         if len(self.inputs[-1]) < len_traj:
@@ -478,7 +478,7 @@ class RewardModel:
             if 'Cloth' in self.env_name:
                 train_images = train_images.squeeze(1)
 
-        batch_index_2 = np.random.choice(max_len, size=mb_size, replace=True)
+        batch_index_2 = np.random.choice(max_len, size=mb_size, replace=True)#Randomly select minibatch number of indices
         sa_t_2 = train_inputs[batch_index_2] # Batch x T x dim of s&a
         r_t_2 = train_targets[batch_index_2] # Batch x T x 1
         if self.vlm_label or self.image_reward:
@@ -500,7 +500,7 @@ class RewardModel:
 
         # Generate time index 
         time_index = np.array([list(range(i*len_traj, i*len_traj+self.size_segment)) for i in range(mb_size)])
-        if 'Cloth' not in self.env_name:
+        if 'Cloth' not in self.env_name:# Understand what is happening here--- why are we adding random indices
             random_idx_2 = np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)
             time_index_2 = time_index + random_idx_2
             random_idx_1 = np.random.choice(len_traj-self.size_segment, size=mb_size, replace=True).reshape(-1,1)

@@ -48,6 +48,6 @@ test_scripts/*
 figures
 figure/
 data/
-
-
+offline_rl_exp/*
+wandb/
 softgym/PyFlex/bindings/build
