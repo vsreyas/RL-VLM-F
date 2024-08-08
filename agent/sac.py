@@ -227,6 +227,7 @@ class SACAgent(Agent):
         self.critic_target.load_state_dict(
             torch.load('%s/critic_target_%s.pt' % (model_dir, step))
         )
+        print("Loaded model from %s" % model_dir)
     
     def update_actor_and_alpha(self, obs, logger, step, print_flag=False):
         dist = self.actor(obs)

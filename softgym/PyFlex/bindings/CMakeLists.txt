@@ -4,6 +4,7 @@ project(PyFleX)
 # set(CMAKE_VERBOSE_MAKEFILE ON)
 
 find_package(CUDA 9.0 REQUIRED)
+set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH};/home/sreyas/miniconda3/envs/rlvlmf/lib/python3.9/site-packages/pybind11/share/cmake/pybind11")
 find_package(pybind11 REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CMAKE_CXX_FLAGS_DEBUG} -MMD -m64 -Wall -std=c++0x")

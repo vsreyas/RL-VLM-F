@@ -22,7 +22,7 @@ from prompt import (
 from vlms.gemini_infer import gemini_query_2, gemini_query_1
 from conv_net import CNN, fanin_init
 
-device = 'cuda'
+device = 'cuda:1'
 
 def gen_net(in_size=1, out_size=1, H=128, n_layers=3, activation='tanh'):
     net = []
@@ -241,11 +241,12 @@ class RewardModel:
         self.save_query_interval = save_query_interval
         
         
-        file_path = os.path.abspath(__file__)
-        dir_path = os.path.dirname(file_path)
-        self.cached_label_path = "{}/{}".format(dir_path, cached_label_path)
-        self.read_cache_idx = 0
+        self.cached_label_path = cached_label_path
         if self.cached_label_path is not None:
+            file_path = os.path.abspath(__file__)
+            dir_path = os.path.dirname(file_path)
+            self.cached_label_path = "{}/{}".format(dir_path, cached_label_path)
+            self.read_cache_idx = 0
             all_cached_labels = sorted(os.listdir(self.cached_label_path))
             self.all_cached_labels = [os.path.join(self.cached_label_path, x) for x in all_cached_labels]
         

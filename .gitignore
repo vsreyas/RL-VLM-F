@@ -48,6 +48,9 @@ test_scripts/*
 figures
 figure/
 data/
+dummy/
+checkpoints/
+wandb/
 
 
 softgym/PyFlex/bindings/build

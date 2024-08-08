@@ -20,7 +20,7 @@ from vlms.blip_infer_2 import blip2_image_text_matching
 from vlms.clip_infer import clip_infer_score as clip_image_text_matching
 import cv2
 
-class Workspace(object):
+class Offline_Workspace(object):
     def __init__(self, cfg):
         self.work_dir = os.getcwd()
         print(f'workspace: {self.work_dir}')
@@ -38,6 +38,8 @@ class Workspace(object):
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.log_success = False
+        with open(cfg.dataset_path, 'rb') as f:
+                self.dataset = pkl.load(f)
         
         current_file_path = os.path.dirname(os.path.realpath(__file__))
         os.system("cp {}/prompt.py {}/".format(current_file_path, self.logger._log_dir))
@@ -144,6 +146,8 @@ class Workspace(object):
         if self.cfg.agent_model_load_dir != "None":
             print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
             self.agent.load(self.cfg.agent_model_load_dir, 1000000) 
+        
+        self.load_dataset_to_buffer()
         
     def evaluate(self, save_additional=False):
         average_episode_reward = 0
@@ -306,84 +310,18 @@ class Workspace(object):
         if not os.path.exists(model_save_dir):
             os.makedirs(model_save_dir)
         
-        episode, episode_reward, done = 0, 0, True
-        if self.log_success:
-            episode_success = 0
-        true_episode_reward = 0
-        
-        # store train returns of recent 10 episodes
-        avg_train_true_return = deque([], maxlen=10) 
-        start_time = time.time()
 
         interact_count = 0
         reward_learning_acc = 0
         vlm_acc = 0
         eval_cnt = 0
         while self.step < self.cfg.num_train_steps:
-            if done:
-                if self.step > 0:
-                    self.logger.log('train/duration', time.time() - start_time, self.step)
-                    self.logger.log('train/reward_learning_acc', reward_learning_acc, self.step)
-                    self.logger.log('train/vlm_acc', vlm_acc, self.step)
-                    for key, value in extra.items():
-                        self.logger.log('train/' + key, value, self.step)
-                    start_time = time.time()
-                    
-                    if "Cloth" in self.cfg.env:
-                        self.logger.dump(
-                            self.step, save=((self.step > self.cfg.num_seed_steps + self.cfg.num_unsup_steps)))
-                    else:
-                        self.logger.dump(
-                            self.step, save=((self.step > self.cfg.num_seed_steps)))
-
-                # evaluate agent periodically
-                if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
-                    self.logger.log('eval/episode', episode, self.step)
-                    self.evaluate()
-                    eval_cnt += 1
-                
-                self.logger.log('train/episode_reward', episode_reward, self.step)
-                self.logger.log('train/true_episode_reward', true_episode_reward, self.step)
-                self.logger.log('train/total_feedback', self.total_feedback, self.step)
-                self.logger.log('train/labeled_feedback', self.labeled_feedback, self.step)
-                
-                if self.log_success:
-                    self.logger.log('train/episode_success', episode_success,
-                        self.step)
-                    self.logger.log('train/true_episode_success', episode_success,
-                        self.step)
-
-                obs = self.env.reset()
-                if "metaworld" in self.cfg.env:
-                    obs = obs[0]
-                self.agent.reset()
-                done = False
-                episode_reward = 0
-                avg_train_true_return.append(true_episode_reward)
-                true_episode_reward = 0
-                if self.log_success:
-                    episode_success = 0
-                episode_step = 0
-                episode += 1
-
-                self.logger.log('train/episode', episode, self.step)
-                
-                traj_images = []
-                ep_info = []
-                        
-            # sample action for data collection
-            if self.step < self.cfg.num_seed_steps:
-                action = self.env.action_space.sample()
-            else:
-                with utils.eval_mode(self.agent):
-                    action = self.agent.act(obs, sample=True)
-
-            # run training update                
-            if self.step == (self.cfg.num_seed_steps + self.cfg.num_unsup_steps):
-                print("finished unsupervised exploration!!")
-
-                # update schedule
-                if self.reward == 'learn_from_preference' or self.reward == 'learn_from_score':
+            
+            # update reward function
+            if self.total_feedback < self.cfg.max_feedback and (
+                self.reward == 'learn_from_preference' or self.reward == 'learn_from_score'):
+                if interact_count == self.cfg.num_interact:
+                    # update schedule
                     if self.cfg.reward_schedule == 1:
                         frac = (self.cfg.num_train_steps-self.step) / self.cfg.num_train_steps
                         if frac == 0:
@@ -394,111 +332,44 @@ class Workspace(object):
                         frac = 1
                     self.reward_model.change_batch(frac)
                     
-                    # update margin --> not necessary / will be updated soon
-                    new_margin = np.mean(avg_train_true_return) * (self.cfg.segment / self.env._max_episode_steps)
-                    self.reward_model.set_teacher_thres_skip(new_margin)
-                    self.reward_model.set_teacher_thres_equal(new_margin)
-                    
-                    # first learn reward
-                    reward_learning_acc, vlm_acc = self.learn_reward(first_flag=1)
-                    
-                    # relabel buffer
+                    # corner case: new total feed > max feed
+                    if self.reward_model.mb_size + self.total_feedback > self.cfg.max_feedback:
+                        self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
+                        
+                    reward_learning_acc, vlm_acc = self.learn_reward()
                     self.reward_model.eval()
                     self.replay_buffer.relabel_with_predictor(self.reward_model)
                     self.reward_model.train()
+                    
+            self.agent.update(self.replay_buffer, self.logger, self.step, 1)
+            self.logger.log('train/reward_learning_acc', reward_learning_acc,
+                        self.step)
+            self.logger.log('train/vlm_acc', vlm_acc,self.step)
+            
 
-                # reset Q due to unsuperivsed exploration
-                self.agent.reset_critic()
-                
-                # update agent
-                self.agent.update_after_reset(
-                    self.replay_buffer, self.logger, self.step, 
-                    gradient_update=self.cfg.reset_update, 
-                    policy_update=True)
-                
-                # reset interact_count
-                interact_count = 0
-            elif self.step > self.cfg.num_seed_steps + self.cfg.num_unsup_steps:
-                # update reward function
-                if self.total_feedback < self.cfg.max_feedback and (
-                    self.reward == 'learn_from_preference' or self.reward == 'learn_from_score'):
-                    if interact_count == self.cfg.num_interact:
-                        # update schedule
-                        if self.cfg.reward_schedule == 1:
-                            frac = (self.cfg.num_train_steps-self.step) / self.cfg.num_train_steps
-                            if frac == 0:
-                                frac = 0.01
-                        elif self.cfg.reward_schedule == 2:
-                            frac = self.cfg.num_train_steps / (self.cfg.num_train_steps-self.step +1)
-                        else:
-                            frac = 1
-                        self.reward_model.change_batch(frac)
-                        
-                        # update margin --> not necessary / will be updated soon
-                        new_margin = np.mean(avg_train_true_return) * (self.cfg.segment / self.env._max_episode_steps)
-                        self.reward_model.set_teacher_thres_skip(new_margin * self.cfg.teacher_eps_skip)
-                        self.reward_model.set_teacher_thres_equal(new_margin * self.cfg.teacher_eps_equal)
-                        
-                        # corner case: new total feed > max feed
-                        if self.reward_model.mb_size + self.total_feedback > self.cfg.max_feedback:
-                            self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
-                            
-                        reward_learning_acc, vlm_acc = self.learn_reward()
-                        self.reward_model.eval()
-                        self.replay_buffer.relabel_with_predictor(self.reward_model)
-                        self.reward_model.train()
-                        interact_count = 0
-                        
-                self.agent.update(self.replay_buffer, self.logger, self.step, 1)
-                
-            # unsupervised exploration
-            elif self.step > self.cfg.num_seed_steps:
-                if self.step % 1000 == 0:
-                    print("unsupervised exploration!!")
-                self.agent.update_state_ent(self.replay_buffer, self.logger, self.step, 
-                                            gradient_update=1, K=self.cfg.topK)
-            try: # for handle stupid gym wrapper change 
-                next_obs, reward, done, extra = self.env.step(action)
-            except:
-                next_obs, reward, terminated, truncated, extra = self.env.step(action)
-                done = terminated or truncated
-            ep_info.append(extra)
-
-            if self.cfg.vlm_label or self.reward in ['blip2_image_text_matching', 'clip_image_text_matching'] or (self.cfg.image_reward and self.reward not in ["gt_task_reward", "sparse_task_reward"]):
-                if "metaworld" in self.cfg.env:
-                    rgb_image = self.env.render()
-                    rgb_image = rgb_image[::-1, :, :]
-                    if "drawer" in self.cfg.env or "sweep" in self.cfg.env:
-                        rgb_image = rgb_image[100:400, 100:400, :]
-                elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
-                    rgb_image = self.env.render(mode='rgb_array')
-                elif 'softgym' in self.cfg.env:
-                    rgb_image = self.env.render(mode='rgb_array', hide_picker=True)
-                else:
-                    rgb_image = self.env.render(mode='rgb_array')
-
-                if self.cfg.image_reward and \
-                    'Water' not in self.cfg.env and \
-                        'Rope' not in self.cfg.env:
-                    rgb_image = cv2.resize(rgb_image, (self.image_height, self.image_width)) # NOTE: resize image here
-                traj_images.append(rgb_image)
-
-            else:
-                rgb_image = None
-
-            if self.reward == 'learn_from_preference' or self.reward == 'learn_from_score':
-                if not self.cfg.image_reward:
-                    self.reward_model.eval()
-                    reward_hat = self.reward_model.r_hat(np.concatenate([obs, action], axis=-1))
-                    self.reward_model.train()
-                else:
-                    image = rgb_image.transpose(2, 0, 1).astype(np.float32) / 255.0
-                    image = image[:, ::self.resize_factor, ::self.resize_factor]
-                    image = image.reshape(1, 3, image.shape[1], image.shape[2])
-                    self.reward_model.eval()
-                    reward_hat = self.reward_model.r_hat(image)
-                    self.reward_model.train()
-            elif self.reward == 'blip2_image_text_matching':
+            if self.step % self.cfg.save_interval == 0 and self.step > 0:
+                self.agent.save(model_save_dir, self.step)
+                self.reward_model.save(model_save_dir, self.step)
+            
+        self.agent.save(model_save_dir, self.step)
+        self.reward_model.save(model_save_dir, self.step)
+    
+    def load_dataset_to_buffer(self):
+        size = len(self.dataset["observations"])
+        
+        if size > self.cfg.replay_buffer_capacity:
+            idx = np.random.choice(size, self.cfg.replay_buffer_capacity, replace=False)
+        else:
+            idx = np.arange(size)
+        
+        for i in idx:
+            obs = self.dataset["observations"][i]
+            action = self.dataset["actions"][i]
+            next_obs = self.dataset["next_observations"][i]
+            reward = self.dataset["rewards"][i]
+            done = self.dataset["terminals"][i]
+            done = float(done)
+            if self.reward == 'blip2_image_text_matching':
                 query_image = rgb_image
                 query_prompt = clip_env_prompts[self.cfg.env] 
                 reward_hat = blip2_image_text_matching(query_image, query_prompt) * 2 - 1 # actually we should scale it [-1, 1] since tanh is used in the reward model
@@ -512,46 +383,17 @@ class Workspace(object):
                     reward_hat = -reward_hat
             elif self.reward == 'gt_task_reward':
                 reward_hat = reward
-            elif self.reward == 'sparse_task_reward':
-                reward_hat = extra['success']
             else:
                 reward_hat = reward
-
-            # allow infinite bootstrap
-            done = float(done)
-            if 'softgym' not in self.cfg.env:
-                done_no_max = 0 if episode_step + 1 == self.env._max_episode_steps else done
-            else:
-                done_no_max = done
-
-            episode_reward += reward_hat
-            true_episode_reward += reward
-            
-            if self.log_success:
-                episode_success = max(episode_success, extra['success'])
-                
-            # adding data to the reward training data
-            if self.reward == 'learn_from_preference' or self.reward == 'learn_from_score':
-                self.reward_model.add_data(obs, action, reward, done, img=rgb_image)
-
             if self.cfg.image_reward and self.reward not in ["gt_task_reward", "sparse_task_reward"]:
+                rgb_image = self.dataset["images"][i]
                 self.replay_buffer.add(obs, action, reward_hat, 
-                    next_obs, done, done_no_max, image=rgb_image[::self.resize_factor, ::self.resize_factor, :])
+                    next_obs, done, done, image=rgb_image[::self.resize_factor, ::self.resize_factor, :])
             else:
                 self.replay_buffer.add(obs, action, reward_hat, 
-                    next_obs, done, done_no_max)
-
-            obs = next_obs
-            episode_step += 1
-            self.step += 1
-            interact_count += 1
-            
-            if self.step % self.cfg.save_interval == 0 and self.step > 0:
-                self.agent.save(model_save_dir, self.step)
-                self.reward_model.save(model_save_dir, self.step)
-            
-        self.agent.save(model_save_dir, self.step)
-        self.reward_model.save(model_save_dir, self.step)
+                    next_obs, done, done)
+                
+        print("Dataset loaded to buffer!!")
         
 @hydra.main(config_path='config/train_PEBBLE.yaml', strict=True)
 def main(cfg):
