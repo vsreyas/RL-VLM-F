@@ -18,8 +18,8 @@ class SawyerDrawerOpenEnvV2(SawyerXYZEnv):
         # obj_high = (0.1, 0.9, 0.0)
         
         
-        obj_low = (0, 0.9, 0.0)
-        obj_high = (0, 0.9, 0.0)
+        obj_low = (-0.05, 0.9, 0.0)
+        obj_high = (0.05, 0.9, 0.0)
 
         super().__init__(
             self.model_name,

@@ -458,17 +458,16 @@ class ValueFunction(nn.Module):
     def forward(self, state: torch.Tensor) -> torch.Tensor:
         return self.v(state)
 
-
-class ImplicitQLearning:
+class BCAgent:
     def __init__(
         self,
         max_action: float,
         actor: nn.Module,
         actor_optimizer: torch.optim.Optimizer,
-        q_network: nn.Module,
-        q_optimizer: torch.optim.Optimizer,
-        v_network: nn.Module,
-        v_optimizer: torch.optim.Optimizer,
+        # q_network: nn.Module,
+        # q_optimizer: torch.optim.Optimizer,
+        # v_network: nn.Module,
+        # v_optimizer: torch.optim.Optimizer,
         iql_tau: float = 0.7,
         beta: float = 3.0,
         max_steps: int = 1000000,
@@ -477,64 +476,64 @@ class ImplicitQLearning:
         device: str = "cpu",
     ):
         self.max_action = max_action
-        self.qf = q_network
-        self.q_target = copy.deepcopy(self.qf).requires_grad_(False).to(device)
-        self.vf = v_network
+        # self.qf = q_network
+        # self.q_target = copy.deepcopy(self.qf).requires_grad_(False).to(device)
+        # self.vf = v_network
         self.actor = actor
-        self.v_optimizer = v_optimizer
-        self.q_optimizer = q_optimizer
+        # self.v_optimizer = v_optimizer
+        # self.q_optimizer = q_optimizer
         self.actor_optimizer = actor_optimizer
         # self.actor_lr_schedule = CosineAnnealingLR(self.actor_optimizer, max_steps)
-        self.iql_tau = iql_tau
-        self.beta = beta
+        # self.iql_tau = iql_tau
+        # self.beta = beta
         self.discount = discount
         self.tau = tau
 
         self.total_it = 0
         self.device = device
 
-    def _update_v(self, observations, actions, log_dict) -> torch.Tensor:
-        # Update value function
-        with torch.no_grad():
-            target_q = self.q_target(observations, actions)
+    # def _update_v(self, observations, actions, log_dict) -> torch.Tensor:
+    #     # Update value function
+    #     with torch.no_grad():
+    #         target_q = self.q_target(observations, actions)
 
-        v = self.vf(observations)
-        adv = target_q - v
-        v_loss = asymmetric_l2_loss(adv, self.iql_tau)
-        log_dict["value_loss"] = v_loss.item()
-        self.v_optimizer.zero_grad()
-        v_loss.backward()
-        self.v_optimizer.step()
-        return adv
+    #     v = self.vf(observations)
+    #     adv = target_q - v
+    #     v_loss = asymmetric_l2_loss(adv, self.iql_tau)
+    #     log_dict["value_loss"] = v_loss.item()
+    #     self.v_optimizer.zero_grad()
+    #     v_loss.backward()
+    #     self.v_optimizer.step()
+    #     return adv
 
-    def _update_q(
-        self,
-        next_v: torch.Tensor,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        terminals: torch.Tensor,
-        log_dict: Dict,
-    ):
-        targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
-        qs = self.qf.both(observations, actions)
-        q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
-        log_dict["q_loss"] = q_loss.item()
-        self.q_optimizer.zero_grad()
-        q_loss.backward()
-        self.q_optimizer.step()
+    # def _update_q(
+    #     self,
+    #     next_v: torch.Tensor,
+    #     observations: torch.Tensor,
+    #     actions: torch.Tensor,
+    #     rewards: torch.Tensor,
+    #     terminals: torch.Tensor,
+    #     log_dict: Dict,
+    # ):
+    #     targets = rewards + (1.0 - terminals.float()) * self.discount * next_v.detach()
+    #     qs = self.qf.both(observations, actions)
+    #     q_loss = sum(F.mse_loss(q, targets) for q in qs) / len(qs)
+    #     log_dict["q_loss"] = q_loss.item()
+    #     self.q_optimizer.zero_grad()
+    #     q_loss.backward()
+    #     self.q_optimizer.step()
 
-        # Update target Q network
-        soft_update(self.q_target, self.qf, self.tau)
+    #     # Update target Q network
+    #     soft_update(self.q_target, self.qf, self.tau)
 
     def _update_policy(
         self,
-        adv: torch.Tensor,
+        # adv: torch.Tensor,
         observations: torch.Tensor,
         actions: torch.Tensor,
         log_dict: Dict,
     ):
-        exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
+        # exp_adv = torch.exp(self.beta * adv.detach()).clamp(max=EXP_ADV_MAX)
         policy_out = self.actor(observations)
         if isinstance(policy_out, torch.distributions.Distribution):
             bc_losses = -policy_out.log_prob(actions).sum(-1, keepdim=False)
@@ -544,7 +543,7 @@ class ImplicitQLearning:
             bc_losses = torch.sum((policy_out - actions) ** 2, dim=1)
         else:
             raise NotImplementedError
-        policy_loss = torch.mean(exp_adv * bc_losses)
+        policy_loss = torch.mean( bc_losses)
         log_dict["actor_loss"] = policy_loss.item()
         self.actor_optimizer.zero_grad()
         policy_loss.backward()
@@ -562,25 +561,25 @@ class ImplicitQLearning:
         ) = batch
         log_dict = {}
 
-        with torch.no_grad():
-            next_v = self.vf(next_observations)
-        # Update value function
-        adv = self._update_v(observations, actions, log_dict)
+        # with torch.no_grad():
+        #     next_v = self.vf(next_observations)
+        # # Update value function
+        # adv = self._update_v(observations, actions, log_dict)
         rewards = rewards.squeeze(dim=-1)
         dones = dones.squeeze(dim=-1)
         # Update Q function
-        self._update_q(next_v, observations, actions, rewards, dones, log_dict)
+        # self._update_q(next_v, observations, actions, rewards, dones, log_dict)
         # Update actor
-        self._update_policy(adv, observations, actions, log_dict)
+        self._update_policy(observations, actions, log_dict)
 
         return log_dict
 
     def state_dict(self) -> Dict[str, Any]:
         return {
-            "qf": self.qf.state_dict(),
-            "q_optimizer": self.q_optimizer.state_dict(),
-            "vf": self.vf.state_dict(),
-            "v_optimizer": self.v_optimizer.state_dict(),
+            # "qf": self.qf.state_dict(),
+            # "q_optimizer": self.q_optimizer.state_dict(),
+            # "vf": self.vf.state_dict(),
+            # "v_optimizer": self.v_optimizer.state_dict(),
             "actor": self.actor.state_dict(),
             "actor_optimizer": self.actor_optimizer.state_dict(),
             # "actor_lr_schedule": self.actor_lr_schedule.state_dict(),
@@ -588,12 +587,12 @@ class ImplicitQLearning:
         }
 
     def load_state_dict(self, state_dict: Dict[str, Any]):
-        self.qf.load_state_dict(state_dict["qf"])
-        self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
-        self.q_target = copy.deepcopy(self.qf)
+        # self.qf.load_state_dict(state_dict["qf"])
+        # self.q_optimizer.load_state_dict(state_dict["q_optimizer"])
+        # self.q_target = copy.deepcopy(self.qf)
 
-        self.vf.load_state_dict(state_dict["vf"])
-        self.v_optimizer.load_state_dict(state_dict["v_optimizer"])
+        # self.vf.load_state_dict(state_dict["vf"])
+        # self.v_optimizer.load_state_dict(state_dict["v_optimizer"])
 
         self.actor.load_state_dict(state_dict["actor"])
         self.actor_optimizer.load_state_dict(state_dict["actor_optimizer"])
@@ -616,14 +615,6 @@ def make_numpy(data:Dict, images = False):
 
 @pyrallis.wrap()
 def train(config: TrainConfig):
-    if config.vlm_reward:
-        config.name = config.name + "-vlm_reward" 
-    elif config.zero_reward:
-        config.name = config.name + '-zero_reward'
-    elif average_reward:
-        config.name = config.name + '-average_reward'
-    else:
-        config.name = config.name + '-gt_reward'
     config.name = config.name + "-seed-" + str(config.seed)
     
     config.name = f"{config.name}-{config.env}-{str(uuid.uuid4())[:8]}"
@@ -700,8 +691,8 @@ def train(config: TrainConfig):
     seed = config.seed
     set_seed(seed, env)
 
-    q_network = TwinQ(state_dim, action_dim).to(config.device)
-    v_network = ValueFunction(state_dim).to(config.device)
+    # q_network = TwinQ(state_dim, action_dim).to(config.device)
+    # v_network = ValueFunction(state_dim).to(config.device)
     actor = (
         DeterministicPolicy(
             state_dim, action_dim, max_action, dropout=config.actor_dropout
@@ -711,18 +702,18 @@ def train(config: TrainConfig):
             state_dim, action_dim, max_action, dropout=config.actor_dropout
         )
     ).to(config.device)
-    v_optimizer = torch.optim.Adam(v_network.parameters(), lr=config.vf_lr)
-    q_optimizer = torch.optim.Adam(q_network.parameters(), lr=config.qf_lr)
+    # v_optimizer = torch.optim.Adam(v_network.parameters(), lr=config.vf_lr)
+    # q_optimizer = torch.optim.Adam(q_network.parameters(), lr=config.qf_lr)
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=config.actor_lr)
 
     kwargs = {
         "max_action": max_action,
         "actor": actor,
         "actor_optimizer": actor_optimizer,
-        "q_network": q_network,
-        "q_optimizer": q_optimizer,
-        "v_network": v_network,
-        "v_optimizer": v_optimizer,
+        # "q_network": q_network,
+        # "q_optimizer": q_optimizer,
+        # "v_network": v_network,
+        # "v_optimizer": v_optimizer,
         "discount": config.discount,
         "tau": config.tau,
         "device": config.device,
@@ -737,7 +728,7 @@ def train(config: TrainConfig):
     print("---------------------------------------")
 
     # Initialize actor
-    trainer = ImplicitQLearning(**kwargs)
+    trainer = BCAgent(**kwargs)
 
     if config.load_model != "":
         policy_file = Path(config.load_model)
