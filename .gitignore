@@ -52,6 +52,7 @@ dummy/
 checkpoints/
 wandb/
 offline_rl/
+offline_rl_exp/
 
 
 softgym/PyFlex/bindings/build
