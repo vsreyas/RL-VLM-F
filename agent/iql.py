@@ -52,7 +52,7 @@ class TrainConfig:
     device: str = "cuda"
     env: str = "metaworld_drawer-open-v2"  # OpenAI gym environment name
     d4rl: Optional[bool] = False
-    data_set_path: Optional[str] = "/home/sreyas/RL-VLM-F/RL-VLM-F/exp/datagen_RopeFlattenEasy-Random/softgym_RopeFlattenEasy/2024-07-30-17-08-24/vlm_1gemini_free_form_rewardlearn_from_preference_H256_L3_lr0.0003/teacher_b-1_g1_m0_s0_e0/label_smooth_0.0/schedule_0/datagen_PassWater_init1000_unsup9000_inter5000_maxfeed20000_seg1_acttanh_Rlr0.0001_Rbatch100_Rupdate30_en3_sample0_large_batch10_seed0/data.pkl"
+    data_set_path: Optional[str] = "/mnt/sda1/sreyas/RL_VLM_F-exp/data/drawer_open/drawer_open-expert.pkl"
     vlm_reward: Optional[bool] = False
     const_reward: Optional[float] = None
     average_reward: Optional[bool] = False
@@ -60,8 +60,8 @@ class TrainConfig:
     eval_iter :int = 10 #Number of evaluations when running eval method
     eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(600000)  # Max time steps to run environment - defualt int (1e6)
-    checkpoints_path: Optional[str] = "/home/sreyas/RL-VLM-F/RL-VLM-F/offline_rl_exp/drawer_open"  # Save path
+    max_timesteps: int = int(100000)  # Max time steps to run environment - defualt int (1e6)
+    checkpoints_path: Optional[str] = "/home/sreyas/Desktop/RL-VLM-F/offline_rl/drawer_open"  # Save path
     load_model: str =""   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
     # IQL
@@ -74,14 +74,14 @@ class TrainConfig:
     iql_deterministic: bool = False  # Use deterministic actor
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
-    vf_lr: float = 3e-4  # V function learning rate
-    qf_lr: float = 3e-4  # Critic learning rate
-    actor_lr: float = 3e-4  # Actor learning rate
+    vf_lr: float = 3e-6  # V function learning rate
+    qf_lr: float = 3e-6  # Critic learning rate
+    actor_lr: float = 3e-6  # Actor learning rate
     actor_dropout: Optional[float] = None  
     # Wandb logging
-    project: str = "debug"
+    project: str = "ICRA2024-drawer-open-expert"
     group: str = "metaworld"
-    name: str = "drawer_open-"
+    name: str = "IQL-"
 
 def render(env, env_name,image_height=200,image_width=200):
     if "metaworld" in env_name:
@@ -618,9 +618,9 @@ def make_numpy(data:Dict, images = False):
 def train(config: TrainConfig):
     if config.vlm_reward:
         config.name = config.name + "-vlm_reward" 
-    elif config.zero_reward:
-        config.name = config.name + '-zero_reward'
-    elif average_reward:
+    elif config.const_reward is not None:
+        config.name = config.name + '-const_reward-' + str(config.const_reward)
+    elif config.average_reward:
         config.name = config.name + '-average_reward'
     else:
         config.name = config.name + '-gt_reward'

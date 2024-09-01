@@ -51,6 +51,7 @@ data/
 dummy/
 checkpoints/
 wandb/
+offline_rl/
 
 
 softgym/PyFlex/bindings/build

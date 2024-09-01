@@ -22,7 +22,7 @@ from prompt import (
 from vlms.gemini_infer import gemini_query_2, gemini_query_1
 from conv_net import CNN, fanin_init
 
-device = 'cuda:1'
+device = 'cuda:0'
 
 def gen_net(in_size=1, out_size=1, H=128, n_layers=3, activation='tanh'):
     net = []

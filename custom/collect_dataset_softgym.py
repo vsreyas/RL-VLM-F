@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3\
+import sys
+sys.path.append('/home/sreyas/Desktop/RL-VLM-F')
 import numpy as np
 import torch
 import os
@@ -11,13 +13,11 @@ from reward_model import RewardModel
 from reward_model_score import RewardModelScore
 from collections import deque
 from prompt import clip_env_prompts
-
+import copy
 import utils
 import hydra
 from PIL import Image
 
-from vlms.blip_infer_2 import blip2_image_text_matching
-from vlms.clip_infer import clip_infer_score as clip_image_text_matching
 import cv2
 
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -53,7 +53,7 @@ class DataGen(object):
         
         current_file_path = os.path.dirname(os.path.realpath(__file__))
         os.system("cp {}/prompt.py {}/".format(current_file_path, self.logger._log_dir))
-        
+        print("Number of trajs: ", cfg.num_eval_episodes)
         # make env
         if 'metaworld' in cfg.env:
             self.env = utils.make_metaworld_env(cfg)
@@ -160,7 +160,8 @@ class DataGen(object):
         
         self.collect_data(save_additional=False)
         
-    def collect_data(self, save_additional=False, collect_images=False, save_interval=1000):
+    def collect_data(self, save_additional=False, collect_images=True, save_interval=250):
+        print("Epsilon: ", self.cfg.epsilon)
         data = {}
         data["observations"] = []
         data["actions"] = []
@@ -170,7 +171,7 @@ class DataGen(object):
         data["info"] = []
         if collect_images:
             data["images"] = []
-            data["next images"] = []
+            # data["next images"] = []
         else:
             data["rewards_pred"] = []
         save_gif_dir = os.path.join(self.logger._log_dir, 'eval_gifs')
@@ -178,7 +179,7 @@ class DataGen(object):
             os.makedirs(save_gif_dir)
 
         all_ep_infos = []
-        for episode in tqdm(range(self.cfg.num_eval_episodes)):
+        for episode in tqdm(range(self.cfg.num_eval_episodes + 10)):
             state, images, actions, next_state, next_images, rewards, episode_return, terminals, info = self.collect_episode(episode, save_additional=save_additional)
             data["observations"] += state
             data["actions"] += actions
@@ -188,32 +189,41 @@ class DataGen(object):
             data["info"] += info
             if collect_images:
                 data["images"] += images
-                data["next images"] += next_images
+                # data["next images"] += next_images
             else:
                 rewards_pred = self.relabel_images(next_images)
                 data["rewards_pred"] += rewards_pred
 
-            # if episode%save_interval == 0 and episode > 0:
-            #     with open(f"{self.logger._log_dir}/data_raw_{episode}.pkl", "wb") as f:
-            #         pickle.dump(data, f)
-        
-        data["observations"] = np.array(data["observations"])
-        data["actions"] = np.array(data["actions"])
-        data["next_observations"] = np.array(data["next_observations"])
-        data["rewards"] = np.array(data["rewards"])
-        data["terminals"] = np.array(data["terminals"])
-        data["info"] = np.array(data["info"])
-        
-        ### save the collected demos
-        if collect_images:
-            data["images"] = np.array(data["images"])
-            data["next images"] = np.array(data["next images"])
-            self.relabel(data)
-        else:
-            data["rewards_pred"] = np.array(data["rewards_pred"])
-        
-        with open(f"{self.logger._log_dir}/data.pkl", "wb") as f:
-            pickle.dump(data, f)
+            if episode%save_interval == 0 and episode > 0:
+                data["observations"] = np.array(data["observations"])
+                data["actions"] = np.array(data["actions"])
+                data["next_observations"] = np.array(data["next_observations"])
+                data["rewards"] = np.array(data["rewards"])
+                data["terminals"] = np.array(data["terminals"])
+                # data["info"] = np.array(data["info"])
+                
+                ### save the collected demos
+                if collect_images:
+                    # data["images"] = np.array(data["images"])
+                    # data["next images"] = np.array(data["next images"])
+                    self.relabel(data)
+                else:
+                    data["rewards_pred"] = np.array(data["rewards_pred"])
+                
+                with open(f"{self.logger._log_dir}/data_{episode/save_interval}.pkl", "wb") as f:
+                    pickle.dump(data, f)
+                print("saved data: ", episode/save_interval)
+                data["observations"] = []
+                data["actions"] = []
+                data["next_observations"] = []
+                data["rewards"] = []
+                data["terminals"] = []
+                data["info"] = []
+                if collect_images:
+                    data["images"] = []
+                    # data["next images"] = []
+                else:
+                    data["rewards_pred"] = []
 
         print("Completed data collection")
         print("Data saved at {}".format(self.logger._log_dir))
@@ -241,12 +251,14 @@ class DataGen(object):
                 actions = data["actions"][index*batch_size:last_index]
                 inputs = np.concatenate([obses, actions], axis=-1)
             else:
-                inputs = data["next images"][index*batch_size:last_index]
+                inputs = copy.deepcopy(data["images"][index*batch_size:last_index])
+                inputs = np.array(inputs)
                 inputs = np.transpose(inputs, (0, 3, 1, 2))
                 inputs = inputs.astype(np.float32) / 255.0
 
             pred_reward = self.reward_model.r_hat_batch(inputs)
             data["rewards_pred"][index*batch_size:last_index] = np.squeeze(pred_reward)
+            del inputs
         torch.cuda.empty_cache()      
         
     def relabel_images(self, images):
@@ -273,7 +285,7 @@ class DataGen(object):
         return pred
         
 
-    def collect_episode(self, episode, save_additional=True, save_vid=False):
+    def collect_episode(self, episode, save_additional=False, save_vid=False):
         # print("evaluating episode {}".format(episode))
         images = []
         next_images = []
@@ -295,19 +307,28 @@ class DataGen(object):
         if self.log_success:
             episode_success = 0
         t_idx = 0
-        if "metaworld" in self.cfg.env:
+        env_name = self.cfg.env
+        image_height = self.image_height
+        image_width = self.image_width
+        
+        if "metaworld" in env_name:
             rgb_image = self.env.render()
             rgb_image = rgb_image[::-1, :, :]
-            if "drawer" in self.cfg.env or "sweep" in self.cfg.env:
+            if "drawer" in env_name or "sweep" in env_name:
                 rgb_image = rgb_image[100:400, 100:400, :]
-        elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+        elif env_name in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
             rgb_image = self.env.render(mode='rgb_array')
+        elif 'softgym' in env_name:
+            rgb_image = self.env.render(mode='rgb_array', hide_picker=True)
         else:
             rgb_image = self.env.render(mode='rgb_array')
+        
+        image = cv2.resize(rgb_image, (image_height, image_width)) # NOTE: resize image here
+    
             
         while not done:
             state += [obs]
-            images += [rgb_image]
+            images += [image]
             with utils.eval_mode(self.agent):
                 rand =  np.random.uniform(low=0.0, high=1.0)
                 if rand<epsilon:
@@ -320,15 +341,19 @@ class DataGen(object):
                 obs, reward, terminated, truncated, extra = self.env.step(action)
                 done = terminated or truncated
 
-            if "metaworld" in self.cfg.env:
+            if "metaworld" in env_name:
                 rgb_image = self.env.render()
-                if "drawer" in self.cfg.env or "sweep" in self.cfg.env:
+                rgb_image = rgb_image[::-1, :, :]
+                if "drawer" in env_name or "sweep" in env_name:
                     rgb_image = rgb_image[100:400, 100:400, :]
-            elif self.cfg.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+            elif env_name in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
                 rgb_image = self.env.render(mode='rgb_array')
+            elif 'softgym' in env_name:
+                rgb_image = self.env.render(mode='rgb_array', hide_picker=True)
             else:
                 rgb_image = self.env.render(mode='rgb_array')
-
+            
+            image = cv2.resize(rgb_image, (image_height, image_width)) # NOTE: resize image here
            
             episode_reward += reward
             true_episode_reward += reward
@@ -337,11 +362,11 @@ class DataGen(object):
             actions += [action]
             rewards +=[reward]
             next_state +=[obs]
-            next_images += [rgb_image]
+            next_images += [image]
             terminals +=[done]
             info += [extra]
             t_idx += 1
-            if self.cfg.mode == 'eval' and t_idx > 100:
+            if self.cfg.mode == 'eval' and t_idx > 200:
                 break
                 
         if 'softgym' in self.cfg.env:
@@ -369,10 +394,10 @@ class DataGen(object):
                 os.makedirs(save_reward_path)
             with open(os.path.join(save_reward_path, "step{:07}_episode{:02}.pkl".format(self.step, episode)), "wb") as f:
                 pkl.dump(rewards, f)
-        print("Episode length: ", len(images))
+        # print("Episode length: ", len(images))
         return state, images, actions, next_state, next_images, rewards, episode_reward, terminals, info
     
-@hydra.main(config_path='/home/sreyas/RL-VLM-F/RL-VLM-F/config/datagen_softgym.yaml', strict=True)
+@hydra.main(config_path='/home/sreyas/Desktop/RL-VLM-F/config/datagen_softgym.yaml', strict=True)
 def main(cfg):
     print("Loading agent step: ", cfg.agent_load_step)
     print("Loading reward model step: ", cfg.reward_model_load_step)
