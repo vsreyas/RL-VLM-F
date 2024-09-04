@@ -31,12 +31,33 @@ class MWDataset(Dataset):
         self.horizon_length = horizon_length
         data_directory = pathlib.Path(dataset_dir)
         print("Loading dataset from", data_directory)
-        with open(data_directory, 'rb') as f:
-            data = pkl.load(f)
-        observations = data['observations']
-        actions = data['actions']
-        terminals = data['terminals']
-        images = data['images']
+        print("List of files in the directory", os.listdir(dataset_dir))
+        
+        data_dict = {"observations": [], "actions": [], "images": [], "terminals": []}
+        for file_name in os.listdir(dataset_dir):
+            if file_name.startswith('data_') and file_name.endswith('.0.pkl'):
+                file_path = os.path.join(dataset_dir, file_name)
+                print(f'Loading data from {file_path}')
+                with open(file_path, 'rb') as file:
+                    data = pickle.load(file)
+                    print(data.keys())
+                    print("Length:",len(data["observations"]))
+                    # Append the data from each file into the corresponding lists in data_dict
+                    data_dict["observations"].append(data["observations"])
+                    data_dict["actions"].append(data["actions"])
+                    data_dict["images"].append(data["images"])
+                    data_dict["terminals"].append(data["terminals"])
+                    del data
+        data_dict["observations"] = np.concatenate(data_dict["observations"])
+        data_dict["actions"] = np.concatenate(data_dict["actions"])
+        data_dict["terminals"] = np.concatenate(data_dict["terminals"])
+        data_dict["images"] = np.concatenate(data_dict["images"])       
+        
+        observations = data_dict['observations']
+        actions = data_dict['actions']
+        terminals = data_dict['terminals']
+        images = data_dict['images']
+        
         print("Images shape: ", images[0].shape)
         self.obs_mean, self.obs_std = compute_mean_std(observations, 1e-3) 
         observations = normalize_states(observations, self.obs_mean, self.obs_std)
@@ -56,7 +77,6 @@ class MWDataset(Dataset):
                 terminals[ind - i] = 1
                 i =  i - 1 
                 
-                
         self.observations = []
         self.actions =  []
         self.images = []
@@ -64,22 +84,17 @@ class MWDataset(Dataset):
         for i in range(len(images)):
             if terminals[i] == 1:
                 continue
-            # print(images[i].shape)
-            # exit()
-            # images[i] = rearrange(images[i], 'h w c -> c h w')
-            # images[i+1] = rearrange(images[i+1], 'h w c -> c h w')
-            self.images.append(torch.Tensor(np.array([images[i], images[i+1]])).permute(0, 3, 1, 2))
-            self.actions.append(torch.Tensor(actions[i + 1 : i + self.horizon_length + 1]))
-            self.observations.append(torch.Tensor(np.array([observations[i], observations[i+1]])))
+            self.images.append(np.array([images[i], images[i+1]]))
+            self.actions.append(actions[i + 1 : i + self.horizon_length + 1])
+            self.observations.append(np.array([observations[i], observations[i+1]]))
             
-        # import pdb; pdb.set_trace()
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, idx):
         data = {}
-        data['image'] = self.images[idx]
-        data['action'] = self.actions[idx]
-        data['observation'] = self.observations[idx]        
+        data['image'] = torch.Tensor(self.images[idx]).permute(0, 3, 1, 2)
+        data['action'] = torch.Tensor(self.actions[idx])
+        data['observation'] = torch.Tensor(self.observations[idx])        
         return data

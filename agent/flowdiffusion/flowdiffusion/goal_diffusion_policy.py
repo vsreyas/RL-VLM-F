@@ -1162,8 +1162,8 @@ class Trainer(object):
                 obj_to_target += extra["obj_to_target"]
             
             episode_rewards.append(episode_reward)
-            save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(step, i, round(episode_reward, 2)))
-            utils_c.save_numpy_as_gif(np.array(images), save_gif_path)
+            # save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(step, i, round(episode_reward, 2)))
+            # utils_c.save_numpy_as_gif(np.array(images), save_gif_path)
 
         success_rate = float(success) / float(n_episodes)
         obj_to_target_avg = obj_to_target / float(n_episodes)

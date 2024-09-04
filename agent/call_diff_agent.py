@@ -18,6 +18,8 @@ import utils
 from dataclasses import asdict, dataclass
 import uuid
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+
 
 
 @dataclass
@@ -27,13 +29,14 @@ class TrainConfig:
     env: str = "metaworld_drawer-open-v2"  # OpenAI gym environment name
     seed: int = 0  # Sets Gym, PyTorch and Numpy seeds
     eval_iter :int = 25 #Number of evaluations when running eval method - default 10
-    eval_freq: int = int(5)  # How often (time steps) we evaluate -default 5000
+    eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(1e6)  # Max time steps to run environment - defualt int (1e6)
+    max_timesteps: int = int(1e5)  # Max time steps to run environment - defualt int (1e6)
     dataset_dir: str = "/home/venky/Desktop/RL-VLM-F/datasets/drawer-open-expert-10_random/42"  # Where to load dataset
     results_folder: str = "/home/venky/Desktop/RL-VLM-F/agent/results"  # Where to save results
-    milestone: int = 7   # Model load file name, "" doesn't load
+    milestone: Optional[int] = None   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
+    horizon_length: int = 4
     # IQL
   
     # Wandb logging
@@ -53,7 +56,7 @@ def set_seed(
     torch.manual_seed(seed)
     torch.use_deterministic_algorithms(deterministic_torch)
     
-def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ckpts/diffusion_policy', milestone=7, sampling_timesteps=10, dataset = None, obs_dim=39, action_dim=4, env = None, horizon_length=4):
+def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ckpts/diffusion_policy', milestone=None, sampling_timesteps=10, dataset = None, obs_dim=39, action_dim=4, env = None, horizon_length=4, config=None):
     unet = Unet1D(action_space=action_dim, obs_steps=2, obs_dim=obs_dim)
 
     diffusion = GoalGaussianDiffusionPolicy(
@@ -74,8 +77,8 @@ def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ck
         train_set=dataset,
         valid_set=[0],
         train_lr=1e-4,
-        train_num_steps =40000,
-        save_and_sample_every =1500,
+        train_num_steps =config.max_timesteps,
+        save_and_sample_every =config.eval_freq,
         ema_update_every = 10,
         ema_decay = 0.999,
         train_batch_size =32,
@@ -86,14 +89,15 @@ def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ck
         fp16 =True,
         amp=True,
     )
-    print("Loading checkpoint from milestone: ", milestone)
-    trainer.load(milestone)
+    if milestone is not None:
+        print("Loading checkpoint from milestone: ", milestone)
+        trainer.load(milestone)
     return trainer
 
 class DiffusionPolicy:
     def __init__(self, env, milestone=7, amp=True, sampling_timesteps=10, dataset=None, results_folder="/results", config=None):
         self.env = env  # Store the environment
-        self.policy = get_diffusion_policy(env=env, milestone=milestone, sampling_timesteps=sampling_timesteps, dataset=dataset)
+        self.policy = get_diffusion_policy(ckpt_dir=results_folder, env=env, milestone=milestone, sampling_timesteps=sampling_timesteps, dataset=dataset, obs_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0], horizon_length=config.horizon_length, config=config)
         self.amp = amp
         self.transform = T.Compose([
             T.Resize((320, 240)),
@@ -141,8 +145,10 @@ def run_diff_policy(config: TrainConfig):
         env = utils.make_env(config)
         
     set_seed(config.seed, env=env)
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
     
-    dataset = MWDataset(dataset_dir='/home/venky/Desktop/RL-VLM-F/datasets/drawer-open-expert-10_random/42', output_dir=config.results_folder)
+    dataset = MWDataset(dataset_dir=config.dataset_dir, output_dir=config.results_folder)
     policy = DiffusionPolicy(env=env, dataset=dataset,config=config)# Pass environment to policy
     
     with open(os.path.join(config.results_folder, "config.yaml"), "w") as f:
