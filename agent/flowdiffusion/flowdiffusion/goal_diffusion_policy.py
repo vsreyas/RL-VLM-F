@@ -795,6 +795,10 @@ class Trainer(object):
         valid_set = Subset(valid_set, valid_ind)
 
         self.ds = train_set
+        self.obs_mean = self.ds.obs_mean
+        self.obs_std = self.ds.obs_std
+        self.actions_mean = self.ds.actions_mean
+        self.actions_std = self.ds.actions_std
         self.valid_ds = valid_set
         dl = DataLoader(self.ds, batch_size = train_batch_size, shuffle = True, pin_memory = True, num_workers = 4)
         # dl = dataloader
@@ -958,7 +962,8 @@ class Trainer(object):
                     x_cond = data["image"]
                     obs = data["observation"]
                     x, x_cond , obs= x.to(device), x_cond.to(device), obs.to(device)
-
+                    # print(x.shape, x_cond.shape, obs.shape)
+                    # exit()
                     # goal_embed = self.encode_batch_text(goal)
                     ### zero whole goal_embed if p < self.cond_drop_chance
                     # goal_embed = goal_embed * (torch.rand(goal_embed.shape[0], 1, 1, device = goal_embed.device) > self.cond_drop_chance).float()
@@ -1063,7 +1068,7 @@ class Trainer(object):
                         # os.makedirs(str(self.results_folder / f'imgs/outputs'), exist_ok = True)
                         # utils.save_image(all_flow_imgs, str(self.results_folder / f'imgs/outputs/sample-{milestone}.png'), nrow = int(math.sqrt(self.num_samples)))
                         self.save(milestone)
-                        if "drawer" in self.env_name:
+                        if "metaworld" in self.config.env:
                             eval_scores, success, mean_obj_to_target = self.eval_actor(
                                 device=self.device,
                                 n_episodes=self.config.n_episodes,
@@ -1089,13 +1094,13 @@ class Trainer(object):
                             f"Success percentage over {self.config.n_episodes} episodes: "
                             f"{success:.3f} "
                         )
-                        if "drawer" in self.config.env:
+                        if "metaworld" in self.config.env:
                             print(
                                 f"Mean object to target distance over {self.config.n_episodes} episodes: "
                                 f"{mean_obj_to_target:.3f} "
                             )
                         
-                        if "drawer" in self.config.env:
+                        if "metaworld" in self.config.env:
                             wandb.log(
                                 {"eval_score": eval_score, "success_percent":success, "object_to_target_distance":mean_obj_to_target}
                             )
@@ -1124,8 +1129,8 @@ class Trainer(object):
         save_gif_dir = os.path.join(self.results_folder, 'eval_gifs')
         if not os.path.exists(save_gif_dir):
             os.makedirs(save_gif_dir)
-
-        for i in range(n_episodes):
+        print("Env_name: " ,env_name)
+        for i in tqdm(range(n_episodes)):
             images = []
             states = []
             state, done = self.env.reset(), False
@@ -1150,25 +1155,27 @@ class Trainer(object):
                 images.append(render(self.env, env_name))
                 states.append(state)
 
-                if "drawer" in env_name and int(extra["success"]) == 1:
-                    success += 1
-                    obj_to_target += extra["obj_to_target"]
-                    break
-                elif done:
-                    success += 1
-                    break
+                if "metaworld" in env_name:
+                    if int(extra["success"]) == 1:
+                        success = success + 1
+                        obj_to_target = obj_to_target + extra["obj_to_target"]
+                        break
+                else:
+                    if done: 
+                        success = success + 1
+                        break
 
-            if int(extra["success"]) != 1 and "drawer" in env_name:
+            if int(extra["success"]) != 1 and "metaworld" in env_name:
                 obj_to_target += extra["obj_to_target"]
             
             episode_rewards.append(episode_reward)
-            # save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(step, i, round(episode_reward, 2)))
-            # utils_c.save_numpy_as_gif(np.array(images), save_gif_path)
+            save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(step, i, round(episode_reward, 2)))
+            utils_c.save_numpy_as_gif(np.array(images), save_gif_path)
 
         success_rate = float(success) / float(n_episodes)
         obj_to_target_avg = obj_to_target / float(n_episodes)
 
-        if "drawer" in env_name:
+        if "metaworld" in env_name:
             return np.asarray(episode_rewards), success_rate, obj_to_target_avg
         else:
             return np.asarray(episode_rewards), success_rate
@@ -1178,13 +1185,16 @@ class Trainer(object):
         bs = 1
         # print(images[0].shape)
         x_conds = torch.Tensor(np.array([images[0], images[1]])).permute(0, 3, 1, 2).unsqueeze(0).to(device)
+        # print(x_conds.shape)
         for o in obs:
             o = (o - self.obs_mean) / self.obs_std
         obs = torch.Tensor(np.array([obs[0], obs[1]])).unsqueeze(0).to(device)
+        # print(obs.shape)
         # tasks = self.encode_batch_text(tasks).to(device)
 
         with self.accelerator.autocast():
-            output = self.ema.ema_model.sample(batch_size=bs, x_cond=x_conds, obs=obs)
+            # output = self.ema.ema_model.sample(batch_size=bs, x_cond=x_conds, obs=obs)
+            output = self.model.sample(x_conds, obs, batch_size=bs)
         output = output.cpu().numpy().squeeze(0)
         output = output * self.actions_std + self.actions_mean
         # print("output : ", output.shape)

@@ -45,6 +45,9 @@ class Unet1D(nn.Module):
         # print("obs_: ", obs_.shape)
         obs_ = obs_.reshape(obs_.shape[0],-1)
         global_cond = torch.cat([self.obs_features, obs_], dim=1)
+        # print("global_cond: ", global_cond.shape)
+        # print("action: ", action.shape)
+        # print("t: ", t)
         return self.unet(action, t, global_cond=global_cond)
 
  

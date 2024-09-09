@@ -39,7 +39,7 @@ python train_PEBBLE.py \
     diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3  \
     feed_type=0 teacher_beta=-1 teacher_gamma=1  teacher_eps_skip=0 teacher_eps_equal=0 \
     num_eval_episodes=1 \
-    cached_label_path=data/cached_labels/Soccer/seed_1/
+    cached_label_path=/mnt/sda1/sreyas/RL_VLM_F-exp/soccer/labels/seed_1
 
 
 ### drawer

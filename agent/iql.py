@@ -50,9 +50,9 @@ LOG_STD_MAX = 2.0
 class TrainConfig:
     # Experiment
     device: str = "cuda"
-    env: str = "metaworld_drawer-open-v2"  # OpenAI gym environment name
+    env: str = "metaworld_soccer-v2"  # OpenAI gym environment name
     d4rl: Optional[bool] = False
-    data_set_path: Optional[str] = "/mnt/sda1/sreyas/RL_VLM_F-exp/data/drawer_open/drawer_open-expert.pkl"
+    data_set_path: Optional[str] = "/mnt/sda1/sreyas/sim_dataset/RopeFlattenEasy/ropeflatteneasy-expert.pkl"
     vlm_reward: Optional[bool] = False
     const_reward: Optional[float] = None
     average_reward: Optional[bool] = False
@@ -60,8 +60,8 @@ class TrainConfig:
     eval_iter :int = 10 #Number of evaluations when running eval method
     eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(100000)  # Max time steps to run environment - defualt int (1e6)
-    checkpoints_path: Optional[str] = "/home/sreyas/Desktop/RL-VLM-F/offline_rl/drawer_open"  # Save path
+    max_timesteps: int = int(200000)  # Max time steps to run environment - defualt int (1e6)
+    checkpoints_path: Optional[str] = "/home/sreyas/Desktop/RL-VLM-F/offline_rl/soccer"  # Save path
     load_model: str =""   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
     # IQL
@@ -74,12 +74,12 @@ class TrainConfig:
     iql_deterministic: bool = False  # Use deterministic actor
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
-    vf_lr: float = 3e-6  # V function learning rate
-    qf_lr: float = 3e-6  # Critic learning rate
-    actor_lr: float = 3e-6  # Actor learning rate
+    vf_lr: float = 3e-3  # V function learning rate
+    qf_lr: float = 3e-3  # Critic learning rate
+    actor_lr: float = 3e-3  # Actor learning rate
     actor_dropout: Optional[float] = None  
     # Wandb logging
-    project: str = "ICRA2024-drawer-open-expert"
+    project: str = "ICRA2024-ropeflatteneasy-expert"
     group: str = "metaworld"
     name: str = "IQL-"
 
@@ -173,13 +173,14 @@ class ReplayBuffer:
         if self._size != 0:
             raise ValueError("Trying to load data into non-empty replay buffer")
         n_transitions = data["observations"].shape[0]
+        print(f"Dataset size: {n_transitions}")
         if n_transitions > self._buffer_size:
             raise ValueError(
                 "Replay buffer is smaller than the dataset you are trying to load!"
             )
         self._states[:n_transitions] = self._to_tensor(data["observations"])
         self._actions[:n_transitions] = self._to_tensor(data["actions"])
-        self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
+        self._rewards[:n_transitions] = self._to_tensor(data["rewards"][ : n_transitions, None])
         self._next_states[:n_transitions] = self._to_tensor(data["next_observations"])
         self._dones[:n_transitions] = self._to_tensor(data["terminals"][..., None])
         self._size += n_transitions
@@ -269,7 +270,7 @@ def eval_actor(
             
             episode_reward += reward
             images.append(render(env,env_name))
-            if "drawer" in env_name:
+            if "metaworld" in env_name:
                  if int(extra["success"]) == 1:
                     success = success + 1
                     obj_to_target = obj_to_target + extra["obj_to_target"]
@@ -278,7 +279,7 @@ def eval_actor(
                 if done: 
                     success = success + 1
                     break
-        if int(extra["success"]) != 1 and "drawer" in env_name:
+        if int(extra["success"]) != 1 and "metaworld" in env_name:
             obj_to_target = obj_to_target + extra["obj_to_target"]
         episode_rewards.append(episode_reward)
         # save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(step, i, round(episode_reward, 2)))
@@ -288,7 +289,7 @@ def eval_actor(
     success = success/float(n_episodes)
     obj_to_target = obj_to_target/float(n_episodes)
     actor.train()
-    if "drawer" in env_name:
+    if "metaworld" in env_name:
         return np.asarray(episode_rewards), success, obj_to_target
     else:
         return np.asarray(episode_rewards), success
@@ -755,7 +756,7 @@ def train(config: TrainConfig):
         # Evaluate episode
         if (t + 1) % config.eval_freq == 0:
             print(f"Time steps: {t + 1}")
-            if "drawer" in config.env:
+            if "metaworld" in config.env:
                 eval_scores, success, mean_obj_to_target = eval_actor(
                     env,
                     actor,
@@ -789,7 +790,7 @@ def train(config: TrainConfig):
                 f"Success percentage over {config.n_episodes} episodes: "
                 f"{success:.3f} "
             )
-            if "drawer" in config.env:
+            if "metaworld" in config.env:
                 print(
                     f"Mean object to target distance over {config.n_episodes} episodes: "
                     f"{mean_obj_to_target:.3f} "
@@ -800,7 +801,7 @@ def train(config: TrainConfig):
                     trainer.state_dict(),
                     os.path.join(config.checkpoints_path, f"checkpoint_{t}.pt"),
                 )
-            if "drawer" in config.env:
+            if "metaworld" in config.env:
                 wandb.log(
                     {"eval_score": eval_score, "success_percent":success, "object_to_target_distance":mean_obj_to_target}, step=trainer.total_it
                 )

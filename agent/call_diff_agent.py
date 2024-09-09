@@ -1,7 +1,7 @@
 import sys
 import os
 
-sys.path.append("/home/venky/Desktop/RL-VLM-F/agent")
+sys.path.append("/home/sreyas/Desktop/RL-VLM-F/agent")
 from flowdiffusion.flowdiffusion.goal_diffusion_policy import GoalGaussianDiffusion as GoalGaussianDiffusionPolicy, Trainer as TrainerPolicy
 from flowdiffusion.flowdiffusion.diffusion_policy_baseline.unet import Unet1D
 from flowdiffusion.flowdiffusion.diffusion_policy_baseline.dataset import MWDataset
@@ -19,24 +19,25 @@ from dataclasses import asdict, dataclass
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-
+import gym
+import random
 
 
 @dataclass
 class TrainConfig:
     # Experiment
     device: str = "cuda"
-    env: str = "metaworld_drawer-open-v2"  # OpenAI gym environment name
-    seed: int = 0  # Sets Gym, PyTorch and Numpy seeds
+    env: str = "CartPole-v1"  # OpenAI gym environment name
+    seed: int = 42  # Sets Gym, PyTorch and Numpy seeds
     eval_iter :int = 25 #Number of evaluations when running eval method - default 10
-    eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
-    n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(1e5)  # Max time steps to run environment - defualt int (1e6)
-    dataset_dir: str = "/home/venky/Desktop/RL-VLM-F/datasets/drawer-open-expert-10_random/42"  # Where to load dataset
-    results_folder: str = "/home/venky/Desktop/RL-VLM-F/agent/results"  # Where to save results
+    eval_freq: int = int(2000)  # How often (time steps) we evaluate -default 5000
+    n_episodes: int = 5  # How many episodes run during evaluation
+    max_timesteps: int = int(30000)  # Max time steps to run environment - defualt int (1e6)
+    dataset_dir: str = "/mnt/sda1/sreyas/RL_VLM_F-exp/datagen/Cartpole/datagen_Cartpole-Expert"  # Where to load dataset
+    results_folder: str = "/home/sreyas/Desktop/RL-VLM-F/diffusion/cartpole/"  # Where to save results
     milestone: Optional[int] = None   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
-    horizon_length: int = 4
+    horizon_length: int = 8
     # IQL
   
     # Wandb logging
@@ -45,7 +46,7 @@ class TrainConfig:
     name: str = "Diff-Policy"
     
 def set_seed(
-    seed: int, env: Optional[gym.Env] = None, deterministic_torch: bool = False
+    seed: int, env = None, deterministic_torch: bool = False
 ):
     if env is not None:
         env.seed(seed)
@@ -57,10 +58,12 @@ def set_seed(
     torch.use_deterministic_algorithms(deterministic_torch)
     
 def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ckpts/diffusion_policy', milestone=None, sampling_timesteps=10, dataset = None, obs_dim=39, action_dim=4, env = None, horizon_length=4, config=None):
+    print("Action dim: ", action_dim)
+    print("Obs dim: ", obs_dim)
     unet = Unet1D(action_space=action_dim, obs_steps=2, obs_dim=obs_dim)
 
     diffusion = GoalGaussianDiffusionPolicy(
-        channels=4,
+        channels=action_dim,
         model=unet,
         image_size=horizon_length,
         timesteps=100,
@@ -95,28 +98,28 @@ def get_diffusion_policy(ckpt_dir='/home/venky/Desktop/RL-VLM-F/agent/results/ck
     return trainer
 
 class DiffusionPolicy:
-    def __init__(self, env, milestone=7, amp=True, sampling_timesteps=10, dataset=None, results_folder="/results", config=None):
-        self.env = env  # Store the environment
-        self.policy = get_diffusion_policy(ckpt_dir=results_folder, env=env, milestone=milestone, sampling_timesteps=sampling_timesteps, dataset=dataset, obs_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0], horizon_length=config.horizon_length, config=config)
-        self.amp = amp
-        self.transform = T.Compose([
+    def __init__(policy, env, milestone=None, amp=True, sampling_timesteps=10, dataset=None, results_folder="/results", config=None):
+        policy.env = env  # Store the environment
+        policy.policy = get_diffusion_policy(ckpt_dir=results_folder, env=env, milestone=milestone, sampling_timesteps=sampling_timesteps, dataset=dataset, obs_dim=env.observation_space.shape[0], action_dim=env.action_space.shape[0], horizon_length=config.horizon_length, config=config)
+        policy.amp = amp
+        policy.transform = T.Compose([
             T.Resize((320, 240)),
             T.CenterCrop((128, 128)),
             T.ToTensor(),
         ])
-        self.policy.env = env
-        self.policy.results_folder = Path(config.results_folder)
-        self.policy.seed = config.seed 
-        self.policy.n_episodes = config.n_episodes
-        self.policy.eval_iter = config.eval_iter
-        self.policy.save_and_sample_every = config.eval_freq
-        self.policy.train_num_steps = config.max_timesteps
-        self.policy.env_name = config.env
-        self.policy.config = config
+        policy.policy.env = env
+        policy.policy.results_folder = Path(config.results_folder)
+        policy.policy.seed = config.seed 
+        policy.policy.n_episodes = config.n_episodes
+        policy.policy.eval_iter = config.eval_iter
+        policy.policy.save_and_sample_every = config.eval_freq
+        policy.policy.train_num_steps = config.max_timesteps
+        policy.policy.env_name = config.env
+        policy.policy.config = config
 
 def wandb_init(config: dict) -> None:
     wandb.init(
-        mode="disabled",
+        # mode="disabled",
         config=config,
         project=config["project"],
         group=config["group"],
@@ -131,9 +134,11 @@ def run_diff_policy(config: TrainConfig):
     config.name = config.name + "-seed-" + str(config.seed)
     
     config.name = f"{config.name}-{config.env}-{str(uuid.uuid4())[:8]}"
-    if config.checkpoints_path is not None:
-        config.checkpoints_path = os.path.join(config.checkpoints_path, config.name)
-    config.gif_path = os.path.join(config.checkpoints_path, "eval_gifs")
+    if config.results_folder is not None:
+        config.results_folder = os.path.join(config.results_folder, config.name)
+    config.gif_path = os.path.join(config.results_folder, "eval_gifs")
+    os.makedirs(config.results_folder, exist_ok=True)
+    os.makedirs(config.gif_path, exist_ok=True)
     
     if 'metaworld' in config.env:
         env = utils.make_metaworld_env(config)
@@ -148,16 +153,91 @@ def run_diff_policy(config: TrainConfig):
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     
-    dataset = MWDataset(dataset_dir=config.dataset_dir, output_dir=config.results_folder)
-    policy = DiffusionPolicy(env=env, dataset=dataset,config=config)# Pass environment to policy
+    dataset = MWDataset(dataset_dir=config.dataset_dir, output_dir=config.results_folder, horizon_length=config.horizon_length)
+    policy = DiffusionPolicy(env=env, dataset=dataset,config=config, results_folder=config.results_folder, milestone=config.milestone)# Pass environment to policy
     
     with open(os.path.join(config.results_folder, "config.yaml"), "w") as f:
             pyrallis.dump(config, f)
     
     wandb_init(asdict(config))
     policy.policy.train()
+    
+
+@pyrallis.wrap()
+def eval_diff_policy(config: TrainConfig):
+    
+    # config.name = config.name + "-seed-" + str(config.seed)
+    
+    # config.name = f"{config.name}-{config.env}-{str(uuid.uuid4())[:8]}"
+    # if config.results_folder is not None:
+    #     config.results_folder = os.path.join(config.results_folder, config.name)
+    # config.gif_path = os.path.join(config.results_folder, "eval_gifs")
+    # os.makedirs(config.results_folder, exist_ok=True)
+    # os.makedirs(config.gif_path, exist_ok=True)
+    device ="cuda" if torch.cuda.is_available() else "cpu"
+    if 'metaworld' in config.env:
+        env = utils.make_metaworld_env(config)
+    elif config.env in ["CartPole-v1", "Acrobot-v1", "MountainCar-v0", "Pendulum-v0"]:
+        env = utils.make_classic_control_env(config)
+    elif 'softgym' in config.env:
+        env = utils.make_softgym_env(config)
+    else:
+        env = utils.make_env(config)
+        
+    set_seed(config.seed, env=env)
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
+    
+    dataset = MWDataset(dataset_dir=config.dataset_dir, output_dir=config.results_folder, horizon_length=config.horizon_length)
+    policy = DiffusionPolicy(env=env, dataset=dataset,config=config, results_folder=config.results_folder, milestone=config.milestone)# Pass environment to policy
+    
+    with open(os.path.join(config.results_folder, "config.yaml"), "w") as f:
+            pyrallis.dump(config, f)
+    
+    wandb_init(asdict(config))
+    if "metaworld" in policy.policy.config.env:
+        eval_scores, success, mean_obj_to_target = policy.policy.eval_actor(
+            device=device,
+            n_episodes=config.n_episodes,
+            env_name=config.env,
+            step=10000
+        )
+    else:
+        eval_scores, success = policy.policy.eval_actor(
+            device=device,
+            n_episodes=config.n_episodes,
+            env_name=config.env,
+            step=10000
+        )
+    eval_score = eval_scores.mean()
+    #normalized_eval_score = env.get_normalized_score(eval_score) * 100.0
+    evaluations.append(eval_score)
+    print("---------------------------------------")
+    print(
+        f"Evaluation over {config.n_episodes} episodes: "
+        f"{eval_score:.3f} "
+    )
+    print(
+        f"Success percentage over {config.n_episodes} episodes: "
+        f"{success:.3f} "
+    )
+    if "metaworld" in config.env:
+        print(
+            f"Mean object to target distance over {config.n_episodes} episodes: "
+            f"{mean_obj_to_target:.3f} "
+        )
+
+    if "metaworld" in config.env:
+        wandb.log(
+            {"eval_score": eval_score, "success_percent":success, "object_to_target_distance":mean_obj_to_target}
+        )
+    else:
+        wandb.log(
+            {"eval_score": eval_score, "success_percent":success}
+        )
 
     
 if __name__ == "__main__":
     run_diff_policy()
+    # eval_diff_policy()
    

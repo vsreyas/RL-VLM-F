@@ -23,10 +23,10 @@ class SawyerSoccerEnvV2(SawyerXYZEnv):
         # obj_low = (-0.1, 0.6, 0.03)
         # obj_high = (0.1, 0.7, 0.03)
 
-        obj_low = (0, 0.65, 0.03)
-        obj_high = (0, 0.65, 0.03)
-        goal_low = (0, 0.85, 0.0)
-        goal_high = (0, 0.85, 0.0)
+        obj_low = (-0.05, 0.6, 0.03)
+        obj_high = (0.05, 0.7, 0.03)
+        goal_low = (-0.05, 0.8, 0.0)
+        goal_high = (0.05, 0.9, 0.0)
 
         super().__init__(
             self.model_name,
@@ -71,7 +71,7 @@ class SawyerSoccerEnvV2(SawyerXYZEnv):
             in_place,
         ) = self.compute_reward(action, obs)
 
-        success = float(target_to_obj <= 0.07)
+        success = float(target_to_obj <= 0.1)
         near_object = float(tcp_to_obj <= 0.03)
         grasp_success = float(
             self.touching_object
