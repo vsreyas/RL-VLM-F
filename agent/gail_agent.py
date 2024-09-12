@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ["SDL_VIDEODRIVER"] = "dummy"
 sys.path.append(os.getcwd())
 import copy
 import random
@@ -23,9 +24,9 @@ from agent.gail_pytorch.models.gail import GAIL
 
 from softgym.registered_env import env_arg_dict, SOFTGYM_ENVS
 from softgym.utils.normalized_env import normalize
-from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE as env_dict
-import metaworld
-import metaworld.envs.mujoco.env_dict as _env_dict
+# from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE as env_dict
+# import metaworld
+# import metaworld.envs.mujoco.env_dict as _env_dict
 
 def make_softgym_env(cfg):
     env_name = cfg.env.replace('softgym_','')
@@ -40,30 +41,30 @@ TensorBatch = List[torch.Tensor]
 class TrainConfig:
     # Experiment
     device: str = "cuda"
-    env: str = "metaworld_drawer-open-v2"  # OpenAI gym environment name
-    data_set_path: Optional[str] = "/home/venky/vanitch/drawer_open/drawer_open-expert.pkl"
+    env: str = "CartPole-v1"  # OpenAI gym environment name
+    data_set_path: Optional[str] = "/project_data/held/sreyas/data/datagen/Cartpole/datagen_Cartpole-Expert/Cartpole-expert.pkl"
     seed: int = 43  # Sets Gym, PyTorch and Numpy seeds
     eval_iter :int = 10 #Number of evaluations when running eval method
     eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    checkpoints_path: Optional[str] = "/home/venky/Desktop/RL-VLM-F/offline_rl/drawer_open"  # Save path
+    checkpoints_path: Optional[str] = "/project_data/held/sreyas/RL-VLM-F/gail/Cartpole"  # Save path
     load_model: str =""   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
     # IQL
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
-    num_iters: int = 10000
+    num_iters: int = 300
     horizon: Optional[int] = None
     lambda_: float = 0.01
     gae_gamma: float = 0.99
     gae_lambda: float = 0.99
     epsilon: float = 0.05
-    max_kl: float = 0.1
-    cg_damping: float = 0.1
+    max_kl: float = 0.05
+    cg_damping: float = 0.5
     normalize_advantage: bool = True
-    lr: float = 1e-3
-    num_samples: int = 512
-    policy_update_freq: int = 5
+    lr: float = 5e-5
+    num_samples: int = 1024
+    policy_update_freq: int = 2
     # Wandb logging
     project: str = "debug_"
     group: str = "metaworld"

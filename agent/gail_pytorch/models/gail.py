@@ -102,11 +102,11 @@ class GAIL(Module):
         gae_gamma = self.train_config.gae_gamma
         gae_lambda = self.train_config.gae_lambda
         eps = self.train_config.epsilon
-        max_kl = self.train_config.max_kl
-        cg_damping = self.train_config.cg_damping
+        max_kl = min(self.train_config.max_kl, 0.05)  # Reduced max_kl to be more conservative
+        cg_damping = max(self.train_config.cg_damping, 0.1)  # Increased damping factor
         normalize_advantage = self.train_config.normalize_advantage
 
-        opt_d = torch.optim.Adam(self.d.parameters(), self.train_config.lr)
+        opt_d = torch.optim.Adam(self.d.parameters(), lr=self.train_config.lr)
         save_gif_dir = self.train_config.gif_path
         
         rwd_iter_means = []
@@ -115,20 +115,20 @@ class GAIL(Module):
         obs_ = FloatTensor(obs_)
         acts_ = FloatTensor(acts_)
         first_index = 0
-        last_index =  num_samples
-            
+        last_index = num_samples
+        
+        # Handle batch indices safely
         if first_index >= len(obs_):
             first_index = 0
-            last_index = num_samples
-        if last_index + num_samples > len(obs_):
-            last_index = len(obs_)
+            last_index = num_samples if first_index == 0 else min(first_index + num_samples, len(obs_))
+        
         exp_acts = acts_[first_index:last_index]
         exp_obs = obs_[first_index:last_index]
         first_index = last_index
         last_index = last_index + num_samples
+        
         for i in tqdm(range(num_iters)):
-            
-            
+
             for k in range(self.train_config.policy_update_freq):
 
                 rwd_iter = []
@@ -138,11 +138,11 @@ class GAIL(Module):
                 rets = []
                 advs = []
                 gms = []
-
                 steps = 0
                 env.seed(seed)
                 obj_to_target = 0.0
                 success = 0
+
                 for j in range(n_episodes):
                     ep_obs = []
                     ep_acts = []
@@ -158,20 +158,17 @@ class GAIL(Module):
 
                     ob, done = env.reset(), False
 
-                    while not done :
+                    while not done:
                         act = self.act(ob)
-
                         ep_obs.append(ob)
                         obs.append(ob)
-
                         ep_acts.append(act)
                         acts.append(act)
-                        if render_ and j == n_episodes -1:
-                            ep_img.append(render(env,env_name))
+                        if render_ and j == n_episodes - 1:
+                            ep_img.append(render(env, env_name))
 
-                        try: # for handle stupid gym wrapper change 
+                        try:  # Handle gym wrapper changes
                             ob, rwd, done, info = env.step(act)
-                            # print("Here")
                         except:
                             ob, rwd, terminated, truncated, info = env.step(act)
                             done = terminated or truncated
@@ -184,11 +181,10 @@ class GAIL(Module):
                         t += 1
                         steps += 1
 
-                        if horizon is not None:
-                            if t >= horizon:
-                                done = True
-                                break
-                            
+                        if horizon is not None and t >= horizon:
+                            done = True
+                            break
+                        
                         if "drawer" in env_name:
                             if int(info["success"]) == 1:
                                 obj_to_target = obj_to_target + info["obj_to_target"]
@@ -200,68 +196,47 @@ class GAIL(Module):
                         obj_to_target = obj_to_target + info["obj_to_target"]
                         rwd_iter.append(np.sum(ep_rwds))
                     elif done:
-                        print("Here")
-                        success = success + 1
+                        success += 1
                         rwd_iter.append(np.sum(ep_rwds))
 
-                    if render_ and j == n_episodes -1:
-                        save_gif_path = os.path.join(save_gif_dir, 'step{:07}_episode{:02}_{}.gif'.format(i, j, round(np.sum(ep_rwds), 2)))
+                    if render_ and j == n_episodes - 1:
+                        save_gif_path = os.path.join(save_gif_dir, f'step{i:07}_episode{j:02}_{round(np.sum(ep_rwds), 2)}.gif')
                         utils.save_numpy_as_gif(np.array(ep_img), save_gif_path)
-                        
+
+                    # Convert episode data to tensors
                     ep_obs = FloatTensor(np.array(ep_obs))
                     ep_acts = FloatTensor(np.array(ep_acts))
-                    ep_rwds = FloatTensor(ep_rwds)
-                    # ep_disc_rwds = FloatTensor(ep_disc_rwds)
+                    ep_rwds = torch.clamp(FloatTensor(ep_rwds), -10, 10)  # Reward clipping
                     ep_gms = FloatTensor(ep_gms)
                     ep_lmbs = FloatTensor(ep_lmbs)
 
-                    ep_costs = (-1) * torch.log(self.d(ep_obs, ep_acts))\
-                        .squeeze().detach()
+                    ep_costs = (-1) * torch.log(self.d(ep_obs, ep_acts)).squeeze().detach()
                     ep_disc_costs = ep_gms * ep_costs
-
-                    ep_disc_rets = FloatTensor(
-                        [sum(ep_disc_costs[i:]) for i in range(t)]
-                    )
+                    ep_disc_rets = FloatTensor([sum(ep_disc_costs[i:]) for i in range(t)])
                     ep_rets = ep_disc_rets / ep_gms
 
                     rets.append(ep_rets)
 
+                    # Value network evaluation and advantage computation
                     self.v.eval()
                     curr_vals = self.v(ep_obs).detach()
-                    next_vals = torch.cat(
-                        (self.v(ep_obs)[1:], FloatTensor([[0.]]))
-                    ).detach()
-                    ep_deltas = ep_costs.unsqueeze(-1)\
-                        + gae_gamma * next_vals\
-                        - curr_vals
+                    next_vals = torch.cat((self.v(ep_obs)[1:], FloatTensor([[0.]]))).detach()
+                    ep_deltas = ep_costs.unsqueeze(-1) + gae_gamma * next_vals - curr_vals
 
-                    ep_advs = FloatTensor([
-                        ((ep_gms * ep_lmbs)[:t - j].unsqueeze(-1) * ep_deltas[j:])
-                        .sum()
-                        for j in range(t)
-                    ])
+                    ep_advs = FloatTensor([((ep_gms * ep_lmbs)[:t - j].unsqueeze(-1) * ep_deltas[j:]).sum() for j in range(t)])
                     advs.append(ep_advs)
-
                     gms.append(ep_gms)
-                success = float(success)
-                success = success/float(n_episodes)
-                obj_to_target = obj_to_target/float(n_episodes)
                 
+                success = float(success) / float(n_episodes)
+                obj_to_target /= float(n_episodes)
                 rwd_iter_means.append(np.mean(rwd_iter))
-                # print(f"Iterations:{i+1}, Rewards:{rwd_iter}")
-                print(
-                    "Iterations: {},   Reward Mean: {}"
-                    .format(i + 1, np.mean(rwd_iter))
-                )
+                
                 if "drawer" in env_name:
-                    wandb.log(
-                        {"eval_score": np.mean(rwd_iter), "success_percent":success, "object_to_target_distance":obj_to_target}
-                    )
+                    wandb.log({"eval_score": np.mean(rwd_iter), "success_percent": success, "object_to_target_distance": obj_to_target})
                 else:
-                    wandb.log(
-                        {"eval_score": np.mean(rwd_iter), "success_percent":success}
-                    )
+                    wandb.log({"eval_score": np.mean(rwd_iter), "success_percent": success})
 
+                # Prepare for discriminator training
                 obs = FloatTensor(np.array(obs))
                 acts = FloatTensor(np.array(acts))
                 rets = torch.cat(rets)
@@ -276,108 +251,77 @@ class GAIL(Module):
                 nov_scores = self.d.get_logits(obs, acts)
 
                 opt_d.zero_grad()
-                loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                    exp_scores, torch.zeros_like(exp_scores)
-                ) \
-                    + torch.nn.functional.binary_cross_entropy_with_logits(
-                        nov_scores, torch.ones_like(nov_scores)
-                    )
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(exp_scores, torch.zeros_like(exp_scores)) + \
+                    torch.nn.functional.binary_cross_entropy_with_logits(nov_scores, torch.ones_like(nov_scores))
                 wandb.log({"loss/discriminator": loss})
                 loss.backward()
                 opt_d.step()
 
-            self.v.train()
-            old_params = get_flat_params(self.v).detach()
-            old_v = self.v(obs).detach()
+                # Value function update
+                self.v.train()
+                old_params = get_flat_params(self.v).detach()
+                old_v = self.v(obs).detach()
 
-            def constraint():
-                return ((old_v - self.v(obs)) ** 2).mean()
+                def constraint():
+                    return ((old_v - self.v(obs)) ** 2).mean()
 
-            grad_diff = get_flat_grads(constraint(), self.v)
+                grad_diff = get_flat_grads(constraint(), self.v)
 
-            def Hv(v):
-                hessian = get_flat_grads(torch.dot(grad_diff, v), self.v)\
-                    .detach()
+                def Hv(v):
+                    hessian = get_flat_grads(torch.dot(grad_diff, v), self.v).detach()
+                    return hessian
 
-                return hessian
+                g = get_flat_grads(((-1) * (self.v(obs).squeeze() - rets) ** 2).mean(), self.v).detach()
+                s = conjugate_gradient(Hv, g).detach()
+                Hs = Hv(s).detach()
+                alpha = torch.sqrt(2 * eps / torch.dot(s, Hs))
 
-            g = get_flat_grads(
-                ((-1) * (self.v(obs).squeeze() - rets) ** 2).mean(), self.v
-            ).detach()
-            s = conjugate_gradient(Hv, g).detach()
+                new_params = old_params + alpha * s
 
-            Hs = Hv(s).detach()
-            alpha = torch.sqrt(2 * eps / torch.dot(s, Hs))
+                set_params(self.v, new_params)
 
-            new_params = old_params + alpha * s
+                # Policy update
+                self.pi.train()
+                old_params = get_flat_params(self.pi).detach()
+                old_distb = self.pi(obs)
 
-            set_params(self.v, new_params)
+                def L():
+                    distb = self.pi(obs)
+                    return (advs * torch.exp(distb.log_prob(acts) - old_distb.log_prob(acts).detach())).mean()
 
-            self.pi.train()
-            old_params = get_flat_params(self.pi).detach()
-            old_distb = self.pi(obs)
+                def kld():
+                    distb = self.pi(obs)
+                    if self.discrete:
+                        old_p = old_distb.probs.detach()
+                        p = distb.probs
+                        return (old_p * (torch.log(old_p) - torch.log(p))).sum(-1).mean()
+                    else:
+                        old_mean = old_distb.mean.detach()
+                        old_cov = old_distb.covariance_matrix.sum(-1).detach()
+                        mean = distb.mean
+                        cov = distb.covariance_matrix.sum(-1)
+                        return 0.5 * ((old_cov / cov).sum(-1) + ((old_mean - mean) ** 2 / cov).sum(-1) - self.action_dim + torch.log(cov).sum(-1) - torch.log(old_cov).sum(-1)).mean()
 
-            def L():
-                distb = self.pi(obs)
+                grad_kld_old_param = get_flat_grads(kld(), self.pi)
 
-                return (advs * torch.exp(
-                            distb.log_prob(acts)
-                            - old_distb.log_prob(acts).detach()
-                        )).mean()
+                def Hv(v):
+                    hessian = get_flat_grads(torch.dot(grad_kld_old_param, v), self.pi).detach()
+                    return hessian + cg_damping * v
 
-            def kld():
-                distb = self.pi(obs)
+                g = get_flat_grads(L(), self.pi).detach()
 
-                if self.discrete:
-                    old_p = old_distb.probs.detach()
-                    p = distb.probs
+                s = conjugate_gradient(Hv, g).detach()
+                Hs = Hv(s).detach()
 
-                    return (old_p * (torch.log(old_p) - torch.log(p)))\
-                        .sum(-1)\
-                        .mean()
+                new_params = rescale_and_linesearch(g, s, Hs, max_kl, L, kld, old_params, self.pi)
 
-                else:
-                    old_mean = old_distb.mean.detach()
-                    old_cov = old_distb.covariance_matrix.sum(-1).detach()
-                    mean = distb.mean
-                    cov = distb.covariance_matrix.sum(-1)
+                disc_causal_entropy = ((-1) * gms * self.pi(obs).log_prob(acts)).mean()
+                grad_disc_causal_entropy = get_flat_grads(disc_causal_entropy, self.pi)
+                new_params += lambda_ * grad_disc_causal_entropy
 
-                    return (0.5) * (
-                            (old_cov / cov).sum(-1)
-                            + (((old_mean - mean) ** 2) / cov).sum(-1)
-                            - self.action_dim
-                            + torch.log(cov).sum(-1)
-                            - torch.log(old_cov).sum(-1)
-                        ).mean()
-
-            grad_kld_old_param = get_flat_grads(kld(), self.pi)
-
-            def Hv(v):
-                hessian = get_flat_grads(
-                    torch.dot(grad_kld_old_param, v),
-                    self.pi
-                ).detach()
-
-                return hessian + cg_damping * v
-
-            g = get_flat_grads(L(), self.pi).detach()
-
-            s = conjugate_gradient(Hv, g).detach()
-            Hs = Hv(s).detach()
-
-            new_params = rescale_and_linesearch(
-                g, s, Hs, max_kl, L, kld, old_params, self.pi
-            )
-
-            disc_causal_entropy = ((-1) * gms * self.pi(obs).log_prob(acts))\
-                .mean()
-            grad_disc_causal_entropy = get_flat_grads(
-                disc_causal_entropy, self.pi
-            )
-            new_params += lambda_ * grad_disc_causal_entropy
-
-            set_params(self.pi, new_params)
-            if i % self.train_config.eval_freq == 0 and i != 0:
-                self.save(i)
+                set_params(self.pi, new_params)
+                
+                if i % self.train_config.eval_freq == 0 and i != 0:
+                    self.save(i)
 
         return rwd_iter_means
