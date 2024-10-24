@@ -4,7 +4,6 @@ This is the official codebase for:
 Sreyas Venkataraman*, Yufei Wang*, Ziyu Wang, David Held&dagger;, Zackory Erickson&dagger;,   
 [Website](https://vsreyas.github.io/OfflineRL-VLMF-home/)
 
-<img width="700px" src="imgs/teaser.gif"/>
 
 ## Install
 Install the conda env via
