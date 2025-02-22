@@ -84,6 +84,7 @@ agent_load_step: 525000
 mode: eval
 save_images: false
 epsilon: 0.01
+dataset_dir: ""
 
 # hydra configuration
 hydra:

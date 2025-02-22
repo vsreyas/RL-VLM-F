@@ -15,7 +15,7 @@ python train_PEBBLE.py \
     feed_type=0 teacher_beta=-1 teacher_gamma=1 teacher_eps_mistake=0 \
     teacher_eps_skip=0 teacher_eps_equal=0 segment=1 num_seed_steps=250 \
     eval_frequency=250 num_eval_episodes=1 \
-    cached_label_path=data/cached_labels/ClothFold/seed_0/
+    cached_label_path=/media/alexis/f8d6014a-8745-471e-ac53-5e50bf9ae322/sreyas/cached_labels/ClothFold/seed_0/
 
 
 ### soccer
@@ -39,7 +39,7 @@ python train_PEBBLE.py \
     diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3  \
     feed_type=0 teacher_beta=-1 teacher_gamma=1  teacher_eps_skip=0 teacher_eps_equal=0 \
     num_eval_episodes=1 \
-    cached_label_path=/mnt/sda1/sreyas/RL_VLM_F-exp/soccer/labels/seed_1
+    cached_label_path=/media/alexis/f8d6014a-8745-471e-ac53-5e50bf9ae322/sreyas/RL_VLM_F-exp/soccer/labels/seed_1
 
 
 ### drawer
@@ -62,7 +62,7 @@ python train_PEBBLE.py \
     diag_gaussian_actor.params.hidden_dim=256 diag_gaussian_actor.params.hidden_depth=3  \
     feed_type=0 teacher_beta=-1 teacher_gamma=1  teacher_eps_skip=0 teacher_eps_equal=0 \
     num_eval_episodes=1 \
-    cached_label_path=data/cached_labels/Drawer/seed_0/
+    cached_label_path=/media/alexis/f8d6014a-8745-471e-ac53-5e50bf9ae322/sreyas/cached_labels/Drawer/seed_0/
 
 
 ### sweep into
@@ -104,7 +104,7 @@ python train_PEBBLE.py \
     agent.params.critic_lr=0.0005 gradient_update=1 activation=tanh num_unsup_steps=1000 num_train_steps=500000   \
     feed_type=0 teacher_beta=-1 teacher_gamma=1 teacher_eps_mistake=0 teacher_eps_skip=0 teacher_eps_equal=0  \
     agent.params.actor_lr=0.0005 \
-    cached_label_path=data/cached_labels/CartPole/seed_0/
+    cached_label_path=/media/alexis/f8d6014a-8745-471e-ac53-5e50bf9ae322/sreyas/cached_labels/CartPole/seed_0/
 
 # RopeFlattenEasy
 python train_PEBBLE.py \
@@ -128,7 +128,7 @@ python train_PEBBLE.py \
     feed_type=0 teacher_beta=-1 teacher_gamma=1  teacher_eps_skip=0 teacher_eps_equal=0 \
     num_eval_episodes=1 \
     resnet=1 \
-    cached_label_path=data/cached_labels/RopeFlattenEasy/seed_0/
+    cached_label_path=/media/alexis/f8d6014a-8745-471e-ac53-5e50bf9ae322/sreyas/cached_labels/RopeFlattenEasy/seed_0/
 
 # PassWater
 python train_PEBBLE.py \
@@ -152,5 +152,6 @@ python train_PEBBLE.py \
     feed_type=0 teacher_beta=-1 teacher_gamma=1  teacher_eps_skip=0 teacher_eps_equal=0 \
     num_eval_episodes=1 \
     resnet=1 \
-    cached_label_path=data/cached_labels/PassWater/seed_0/
+    cached_label_path=/mnt/sda1/sreyas/RL_VLM_F-exp/cached_labels/PassWater/seed_1\
+    reward_model_load_dir=exp/reproduce/softgym_PassWater/2024-09-11-10-38-34/vlm_1gemini_free_form_rewardlearn_from_preference_H256_L3_lr0.0003/teacher_b-1_g1_m0_s0_e0/label_smooth_0.0/schedule_0/PEBBLE_init1000_unsup9000_inter5000_maxfeed20000_seg1_acttanh_Rlr0.0001_Rbatch100_Rupdate30_en3_sample0_large_batch10_seed0/models
 

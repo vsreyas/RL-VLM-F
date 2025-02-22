@@ -32,7 +32,7 @@ class TrainConfig:
     eval_iter :int = 25 #Number of evaluations when running eval method - default 10
     eval_freq: int = int(2000)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 5  # How many episodes run during evaluation
-    max_timesteps: int = int(30000)  # Max time steps to run environment - defualt int (1e6)
+    max_timesteps: int = int(14000)  # Max time steps to run environment - defualt int (1e6)
     dataset_dir: str = "/mnt/sda1/sreyas/RL_VLM_F-exp/datagen/Cartpole/datagen_Cartpole-Expert"  # Where to load dataset
     results_folder: str = "/home/sreyas/Desktop/RL-VLM-F/diffusion/cartpole/"  # Where to save results
     milestone: Optional[int] = None   # Model load file name, "" doesn't load

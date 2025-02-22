@@ -553,51 +553,6 @@ class Workspace(object):
         self.agent.save(model_save_dir, self.step)
         self.reward_model.save(model_save_dir, self.step)
         
-    def run_offline(self):
-
-        print("Starting offline reward model training from cached labels.")
-
-        # Directory for saving the reward model during offline training
-        model_save_dir = os.path.join(self.work_dir, "models_offline")
-        if not os.path.exists(model_save_dir):
-            os.makedirs(model_save_dir)
-
-        # Separate counter just for our offline training loop
-        offline_step = 0
-
-        # Loop until there are no more cached label files to process
-        while True:
-            # Load one batch of cached labels, if any remain
-            num_labels = self.reward_model.uniform_sampling()
-            if num_labels == 0:
-                print("No more cached labels to process.")
-                break
-            print(f"Loaded {num_labels} new labels from cache.")
-
-            # Train for a fixed number of epochs using the newly-loaded data
-            for epoch in range(self.cfg.reward_update):
-                # Decide if we’re doing “soft” cross-entropy or standard CE
-                if self.cfg.label_margin > 0 or self.cfg.teacher_eps_equal > 0:
-                    self.reward_model.train()
-                    train_acc = self.reward_model.train_soft_reward()
-                else:
-                    self.reward_model.train()
-                    train_acc = self.reward_model.train_reward()
-
-                avg_acc = np.mean(train_acc)
-                print(f"Offline step {offline_step}, epoch {epoch}: training accuracy = {avg_acc:.4f}")
-                
-                # Update offline_step after each training epoch
-                offline_step += 1
-
-                # Save the reward model at intervals
-                if offline_step % self.cfg.save_interval == 0:
-                    print(f"Saving reward model at offline step {offline_step}")
-                    self.reward_model.save(model_save_dir, offline_step)
-        self.reward_model.save(model_save_dir, offline_step+1e6)
-        print("Offline reward model training complete.")
-
-        
 @hydra.main(config_path='config/train_PEBBLE.yaml', strict=True)
 def main(cfg):
     workspace = Workspace(cfg)
