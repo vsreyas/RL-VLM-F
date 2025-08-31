@@ -2,7 +2,7 @@ defaults:
     - agent: sac
     
 # this needs to be specified manually
-experiment: datagen_PassWater
+experiment: PEBBLE
 
 # reward learning
 segment: 1
@@ -50,7 +50,7 @@ save_video: false
 seed: 0
 
 # Environment
-env: softgym_PassWater
+env: dog_stand
 gradient_update: 1
 
 # vlm label
@@ -70,7 +70,7 @@ image_size: 300
 cached_label_path: null
 
 # exp_name
-exp_name: datagen
+exp_name: gemini_template_1
 prompt: ???
 clip_prompt: "The green drawer is completely opened."
 reward: learn_from_preference
@@ -84,6 +84,7 @@ agent_load_step: 525000
 mode: eval
 save_images: false
 epsilon: 0.01
+dataset_dir: ""
 
 # hydra configuration
 hydra:

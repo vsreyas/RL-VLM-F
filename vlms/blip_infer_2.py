@@ -7,7 +7,7 @@ from lavis.models import load_model_and_preprocess
 from lavis.processors import load_processor
 
 device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
-model, vis_processors, text_processors = load_model_and_preprocess("blip2_image_text_matching", "pretrain_vitL", device=device, is_eval=True)
+# model, vis_processors, text_processors = load_model_and_preprocess("blip2_image_text_matching", "pretrain_vitL", device=device, is_eval=True)
 
 
 def blip2_infer_image_text_matching(rgb1, rgb2, text, use_prob=False, return_scores=False):

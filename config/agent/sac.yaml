@@ -2,9 +2,9 @@ agent:
   name: sac
   class: agent.sac.SACAgent
   params:
-    obs_dim: ??? # to be specified later
-    action_dim: ??? # to be specified later
-    action_range: ??? # to be specified later
+    obs_dim: null # to be specified later
+    action_dim: null # to be specified later
+    action_range: null # to be specified later
     device: ${device}
     critic_cfg: ${double_q_critic}
     actor_cfg: ${diag_gaussian_actor}

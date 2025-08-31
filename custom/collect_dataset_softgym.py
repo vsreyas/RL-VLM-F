@@ -1,12 +1,12 @@
 #!/usr/bin/env python3\
 import sys
-sys.path.append('/home/sreyas/Desktop/RL-VLM-F')
+sys.path.append('/project_data/held/sreyas/RL-VLM-F')
 import numpy as np
 import torch
 import os
 import time
 import pickle as pkl
-
+import glob
 from logger import Logger
 from replay_buffer import ReplayBuffer
 from reward_model import RewardModel
@@ -17,6 +17,14 @@ import copy
 import utils
 import hydra
 from PIL import Image
+from prompt import clip_env_prompts
+import clip
+from PIL import Image
+from matplotlib import pyplot as plt
+from config import Config
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# clip_model, preprocess = clip.load("ViT-L/14@336px", device=device)
+
 
 import cv2
 
@@ -35,8 +43,9 @@ import uuid
 class DataGen(object):
     def __init__(self, cfg):
         self.work_dir = os.getcwd()
-        print(f'workspace: {self.work_dir}')
-
+        print(f"workspace: {self.work_dir}")
+        self.multiple = True
+        self.model_paths = ["0-25","0-50","0-75", "prox_flip"]
         self.cfg = cfg
         self.cfg.prompt = clip_env_prompts[cfg.env]
         self.cfg.clip_prompt = clip_env_prompts[cfg.env]
@@ -111,55 +120,315 @@ class DataGen(object):
             reward_model_class = RewardModel
         elif self.reward == 'learn_from_score':
             reward_model_class = RewardModelScore
-        
-        self.reward_model = reward_model_class(
-            ### original PEBBLE parameters
-            self.env.observation_space.shape[0],
-            self.env.action_space.shape[0],
-            ensemble_size=cfg.ensemble_size,
-            size_segment=cfg.segment,
-            activation=cfg.activation, 
-            lr=cfg.reward_lr,
-            mb_size=cfg.reward_batch, 
-            large_batch=cfg.large_batch, 
-            label_margin=cfg.label_margin, 
-            teacher_beta=cfg.teacher_beta, 
-            teacher_gamma=cfg.teacher_gamma, 
-            teacher_eps_mistake=cfg.teacher_eps_mistake, 
-            teacher_eps_skip=cfg.teacher_eps_skip, 
-            teacher_eps_equal=cfg.teacher_eps_equal,
-            capacity=cfg.max_feedback * 2,
-            
-            ### vlm parameters
-            vlm_label=cfg.vlm_label,
-            vlm=cfg.vlm,
-            env_name=cfg.env,
-            clip_prompt=clip_env_prompts[cfg.env],
-            log_dir=self.logger._log_dir,
-            flip_vlm_label=cfg.flip_vlm_label,
-            cached_label_path=cfg.cached_label_path,
+        if not self.multiple:
+            self.reward_model = reward_model_class(
+                ### original PEBBLE parameters
+                self.env.observation_space.shape[0],
+                self.env.action_space.shape[0],
+                ensemble_size=cfg.ensemble_size,
+                size_segment=cfg.segment,
+                activation=cfg.activation, 
+                lr=cfg.reward_lr,
+                mb_size=cfg.reward_batch, 
+                large_batch=cfg.large_batch, 
+                label_margin=cfg.label_margin, 
+                teacher_beta=cfg.teacher_beta, 
+                teacher_gamma=cfg.teacher_gamma, 
+                teacher_eps_mistake=cfg.teacher_eps_mistake, 
+                teacher_eps_skip=cfg.teacher_eps_skip, 
+                teacher_eps_equal=cfg.teacher_eps_equal,
+                capacity=cfg.max_feedback * 2,
+                
+                ### vlm parameters
+                vlm_label=cfg.vlm_label,
+                vlm=cfg.vlm,
+                env_name=cfg.env,
+                clip_prompt=clip_env_prompts[cfg.env],
+                log_dir=self.logger._log_dir,
+                flip_vlm_label=cfg.flip_vlm_label,
+                cached_label_path=cfg.cached_label_path,
 
-            ### image-based reward model parameters
-            image_reward=cfg.image_reward,
-            image_height=image_height,
-            image_width=image_width,
-            resize_factor=self.resize_factor,
-            resnet=cfg.resnet,
-            conv_kernel_sizes=cfg.conv_kernel_sizes,
-            conv_strides=cfg.conv_strides,
-            conv_n_channels=cfg.conv_n_channels,
-        )
-        
-        if self.cfg.reward_model_load_dir is not  None:
-            print("loading reward model at {}".format(self.cfg.reward_model_load_dir))
-            self.reward_model.load(self.cfg.reward_model_load_dir, cfg.reward_model_load_step) 
+                ### image-based reward model parameters
+                image_reward=cfg.image_reward,
+                image_height=image_height,
+                image_width=image_width,
+                resize_factor=self.resize_factor,
+                resnet=cfg.resnet,
+                conv_kernel_sizes=cfg.conv_kernel_sizes,
+                conv_strides=cfg.conv_strides,
+                conv_n_channels=cfg.conv_n_channels,
+            )
+        else:
+            self.reward_model = []
+            for i in range(4):
+                rew_model =  reward_model_class(
+                ### original PEBBLE parameters
+                self.env.observation_space.shape[0],
+                self.env.action_space.shape[0],
+                ensemble_size=cfg.ensemble_size,
+                size_segment=cfg.segment,
+                activation=cfg.activation, 
+                lr=cfg.reward_lr,
+                mb_size=cfg.reward_batch, 
+                large_batch=cfg.large_batch, 
+                label_margin=cfg.label_margin, 
+                teacher_beta=cfg.teacher_beta, 
+                teacher_gamma=cfg.teacher_gamma, 
+                teacher_eps_mistake=cfg.teacher_eps_mistake, 
+                teacher_eps_skip=cfg.teacher_eps_skip, 
+                teacher_eps_equal=cfg.teacher_eps_equal,
+                capacity=cfg.max_feedback * 2,
+                
+                ### vlm parameters
+                vlm_label=cfg.vlm_label,
+                vlm=cfg.vlm,
+                env_name=cfg.env,
+                clip_prompt=clip_env_prompts[cfg.env],
+                log_dir=self.logger._log_dir,
+                flip_vlm_label=cfg.flip_vlm_label,
+                cached_label_path=cfg.cached_label_path,
+
+                ### image-based reward model parameters
+                image_reward=cfg.image_reward,
+                image_height=image_height,
+                image_width=image_width,
+                resize_factor=self.resize_factor,
+                resnet=cfg.resnet,
+                conv_kernel_sizes=cfg.conv_kernel_sizes,
+                conv_strides=cfg.conv_strides,
+                conv_n_channels=cfg.conv_n_channels,
+                )
+                self.reward_model.append(copy.deepcopy(rew_model))
+        print(self.cfg.reward_model_load_dir)
+        if self.cfg.reward_model_load_dir is not None:
+            if not self.multiple:
+                print("loading reward model at {}".format(self.cfg.reward_model_load_dir))
+                self.reward_model.load(self.cfg.reward_model_load_dir, cfg.reward_model_load_step) 
+            else:
+                print("loading multiple reward models")
+                for i in range(4):
+                    curr_path =  self.cfg.reward_model_load_dir + "/" + self.model_paths[i]
+                    print("loading reward model {} at {}".format(i, curr_path))
+                    self.reward_model[i].load(curr_path, cfg.reward_model_load_step) 
+                    
+                    
                 
         if self.cfg.agent_model_load_dir is not None:
             print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
             self.agent.load(self.cfg.agent_model_load_dir, cfg.agent_load_step) 
         
-        self.collect_data(save_additional=False)
+        # self.collect_data(save_additional=False)
+    
+    def process_and_relabel_data(self, folder_path):
+        """
+        Reads pickle files from a folder, relabels data using images, and saves a new pickle with specific keys.
+
+        Args:
+            folder_path (str): Path to the folder containing the pickle files.
+        """
+        # Initialize the data dictionary
+        data = {
+            "observations": [],
+            "actions": [],
+            "next_observations": [],
+            "rewards": [],
+            "terminals": [],
+            "info": [],
+            "rewards_pred": []
+        }
+
+        # Get list of all pickle files in the folder
+        pickle_files = glob.glob(os.path.join(folder_path, '*.pkl'))
+        pickle_files.sort()  # Optional: sort the files if order matters
+
+        print(f"Found {len(pickle_files)} pickle files in '{folder_path}'. Processing...")
+
+        for pickle_file in tqdm(pickle_files):
+            # Load data from pickle
+            with open(pickle_file, 'rb') as f:
+                loaded_data = pickle.load(f)
+            
+            # Append data to the main data dictionary
+            data["observations"].extend(loaded_data.get("observations", []))
+            data["actions"].extend(loaded_data.get("actions", []))
+            data["next_observations"].extend(loaded_data.get("next_observations", []))
+            data["rewards"].extend(loaded_data.get("rewards", []))
+            data["terminals"].extend(loaded_data.get("terminals", []))
+            data["info"].extend(loaded_data.get("info", []))
+            
+            # Retrieve images for relabeling
+            next_images = loaded_data.get("images", [])
+            if not next_images:
+                next_images = loaded_data.get("next_images", [])
+                if not next_images:
+                    print(f"No 'next_images' found in {pickle_file}. Skipping relabeling for this file.")
+                    continue
+
+            # Perform relabeling using images
+            rewards_pred = self.relabel_images(next_images)
+            data["rewards_pred"].extend(rewards_pred)
+            print(f"Relabeled {len(rewards_pred)} rewards from {pickle_file}")
+
+        # Convert lists to numpy arrays
+        for key in data.keys():
+            data[key] = np.array(data[key])
+
+        # Save the final data to a pickle
+        output_pickle_path = os.path.join(self.logger._log_dir, 'processed_data.pkl')
+        with open(output_pickle_path, 'wb') as f:
+            pickle.dump(data, f)
+
+        print(f"\nProcessed data saved at {output_pickle_path}")
+        print(f"Size of the dataset: {len(data['observations'])}")
+    
+    def process_and_relabel_data_multiple(self, folder_path):
+        """
+        Reads pickle files from a folder, relabels data using images, and saves a new pickle with specific keys.
+
+        Args:
+            folder_path (str): Path to the folder containing the pickle files.
+        """
+        # Initialize the data dictionary
+        data = {
+            "observations": [],
+            "actions": [],
+            "next_observations": [],
+            "rewards": [],
+            "terminals": [],
+            "info": [],
+            "rewards_0-25": [],
+            "rewards_0-50": [],
+            "rewards_0-75":[],
+            "rewards_prox_flip":[]
+        }
+
+        # Get list of all pickle files in the folder
+        pickle_files = glob.glob(os.path.join(folder_path, '*.pkl'))
+        pickle_files.sort()  # Optional: sort the files if order matters
+
+        print(f"Found {len(pickle_files)} pickle files in '{folder_path}'. Processing...")
+
+        for pickle_file in tqdm(pickle_files):
+            # Load data from pickle
+            with open(pickle_file, 'rb') as f:
+                loaded_data = pickle.load(f)
+            
+            # Append data to the main data dictionary
+            data["observations"].extend(loaded_data.get("observations", []))
+            data["actions"].extend(loaded_data.get("actions", []))
+            data["next_observations"].extend(loaded_data.get("next_observations", []))
+            data["rewards"].extend(loaded_data.get("rewards", []))
+            data["terminals"].extend(loaded_data.get("terminals", []))
+            data["info"].extend(loaded_data.get("info", []))
+            
+            # Retrieve images for relabeling
+            next_images = loaded_data.get("images", [])
+            if not next_images:
+                next_images = loaded_data.get("next_images", [])
+                if not next_images:
+                    print(f"No 'next_images' found in {pickle_file}. Skipping relabeling for this file.")
+                    continue
+
+            # Perform relabeling using images
+            rewards_pred = self.relabel_images_multiple(next_images)
+            data["rewards_0-25"].extend(rewards_pred[0])
+            data["rewards_0-50"].extend(rewards_pred[1])
+            data["rewards_0-75"].extend(rewards_pred[2])
+            data["rewards_prox_flip"].extend(rewards_pred[3])
+            print(f"Relabeled {len(rewards_pred[0])} rewards from {pickle_file}")
+
+        # Convert lists to numpy arrays
+        for key in data.keys():
+            data[key] = np.array(data[key])
+
+        # Save the final data to a pickle
+        output_pickle_path = os.path.join(self.logger._log_dir, 'processed_data.pkl')
+        with open(output_pickle_path, 'wb') as f:
+            pickle.dump(data, f)
+
+        print(f"\nProcessed data saved at {output_pickle_path}")
+        print(f"Size of the dataset: {len(data['observations'])}")
+    
+    
+    def process_and_relabel_data_clip(self, folder_path):
+        """
+        Reads pickle files from a folder, relabels data using images, and saves a new pickle with specific keys.
         
+        In addition to relabeling rewards via self.relabel_images, this function also computes a CLIP-based
+        predicted reward using clip_image_text_matching, and stores it as "clip-score".
+        
+        Args:
+            folder_path (str): Path to the folder containing the pickle files.
+        """
+        # Ensure clip_env_prompts and clip_image_text_matching are imported in your module
+
+        # Initialize the data dictionary with an extra key for CLIP scores
+        data = {
+            "observations": [],
+            "actions": [],
+            "next_observations": [],
+            "rewards": [],
+            "terminals": [],
+            "info": [],
+            # "rewards_pred": [],
+            "clip-score": []  # new key for CLIP-based predicted rewards
+        }
+
+        # Get list of all pickle files in the folder
+        pickle_files = glob.glob(os.path.join(folder_path, '*.pkl'))
+        pickle_files.sort()  # Optional: sort the files if order matters
+
+        print(f"Found {len(pickle_files)} pickle files in '{folder_path}'. Processing...")
+
+        for pickle_file in tqdm(pickle_files):
+            # Load data from pickle
+            with open(pickle_file, 'rb') as f:
+                loaded_data = pickle.load(f)
+                print(loaded_data.keys())
+            
+            # Append data to the main data dictionary
+            data["observations"].extend(loaded_data.get("observations", []))
+            data["actions"].extend(loaded_data.get("actions", []))
+            data["next_observations"].extend(loaded_data.get("next_observations", []))
+            data["rewards"].extend(loaded_data.get("rewards", []))
+            data["terminals"].extend(loaded_data.get("terminals", []))
+            data["info"].extend(loaded_data.get("info", []))
+            
+            # Retrieve images for relabeling
+            next_images = loaded_data.get("images", [])
+            if not next_images:
+                next_images = loaded_data.get("next_images", [])
+                if not next_images:
+                    print(f"No 'next_images' found in {pickle_file}. Skipping relabeling for this file.")
+                    continue
+            
+            # Compute CLIP-based predicted rewards using clip_image_text_matching
+            # Get the prompt for the current environment
+            query_prompt = clip_env_prompts[self.cfg.env]
+            print("Querying clip-scores")
+            clip_score = self.clip_infer_scores(next_images, query_prompt)
+            data["clip-score"].extend(clip_score)
+            print(f"Computed {len(clip_score)} clip scores from {pickle_file}")
+            # Perform relabeling using images (for rewards_pred)
+            # rewards_pred = self.relabel_images(next_images)
+            # data["rewards_pred"].extend(rewards_pred)
+            # print(f"Relabeled {len(rewards_pred)} rewards from {pickle_file}")
+            del loaded_data
+            
+
+        # Convert lists to numpy arrays
+        for key in data.keys():
+            print(key)
+            data[key] = np.array(data[key])
+
+        # Save the final data to a pickle
+        output_pickle_path = os.path.join(self.logger._log_dir, 'processed_data.pkl')
+        with open(output_pickle_path, 'wb') as f:
+            pickle.dump(data, f)
+
+        print(f"\nProcessed data saved at {output_pickle_path}")
+        print(f"Size of the dataset: {len(data['observations'])}")
+
     def collect_data(self, save_additional=False, collect_images=True, save_interval=250):
         print("Epsilon: ", self.cfg.epsilon)
         data = {}
@@ -283,6 +552,30 @@ class DataGen(object):
         del inputs
         torch.cuda.empty_cache()
         return pred
+    
+    def relabel_images_multiple(self, images):
+        pred = [[],[],[],[]]
+        next_images = np.array(images)
+        idx = len(next_images)
+        batch_size = 32
+        total_iter = int(idx/batch_size)
+        if idx > batch_size*total_iter:
+            total_iter += 1
+        for index in range(total_iter):
+            last_index = (index+1)*batch_size
+            if (index+1)*batch_size > idx:
+                last_index = idx
+            inputs = next_images[index*batch_size:last_index]
+            inputs = np.transpose(inputs, (0, 3, 1, 2))
+            inputs = inputs.astype(np.float32) / 255.0
+            for i in range(4):
+                pred_reward = self.reward_model[i].r_hat_batch(inputs)
+                pred[i] += list(np.squeeze(pred_reward))
+        
+        del next_images
+        del inputs
+        torch.cuda.empty_cache()
+        return pred
         
 
     def collect_episode(self, episode, save_additional=False, save_vid=False):
@@ -397,12 +690,73 @@ class DataGen(object):
         # print("Episode length: ", len(images))
         return state, images, actions, next_state, next_images, rewards, episode_reward, terminals, info
     
-@hydra.main(config_path='/home/sreyas/Desktop/RL-VLM-F/config/datagen_softgym.yaml', strict=True)
+    def clip_infer_scores(self, images, text, batch_size=32):
+        """
+        Compute CLIP similarity scores for a list of images given a text prompt.
+        
+        This function:
+        - Converts the list of images to a numpy array.
+        - Precomputes the text embedding only once.
+        - Processes the images in batches of size `batch_size` (handling any leftover images).
+        - Uses the CLIP model to compute similarity scores for each image.
+        
+        Args:
+            images (list or array): List of images (each as a numpy array).
+            text (str): The text prompt.
+            batch_size (int, optional): Batch size for processing images. Defaults to 64.
+            
+        Returns:
+            list: Similarity scores (floats) for each image.
+        """
+        scores = []
+        next_images = np.array(images)
+        idx = len(next_images)
+        print("Prompt: ", text)
+        print("size: ", idx)
+        # Precompute the text embedding once.
+        tokenized_text = clip.tokenize(text).to(device)
+        with torch.no_grad():
+            text_features = clip_model.encode_text(tokenized_text)
+            text_features /= text_features.norm(dim=-1, keepdim=True)
+        
+        # Determine the number of iterations (batches)
+        total_iter = int(idx / batch_size)
+        if idx > batch_size * total_iter:
+            total_iter += 1
+            
+        for index in tqdm(range(total_iter)):
+            last_index = (index + 1) * batch_size
+            if last_index > idx:
+                last_index = idx
+            batch_imgs = next_images[index * batch_size : last_index]
+            
+            # Process each image: convert to PIL, ensure RGB, and preprocess.
+            processed_images = []
+            for img in batch_imgs:
+                pil_img = Image.fromarray(img).convert('RGB')
+                processed_images.append(preprocess(pil_img))
+            
+            image_tensor = torch.stack(processed_images).to(device)
+            with torch.no_grad():
+                image_features = clip_model.encode_image(image_tensor)
+                image_features /= image_features.norm(dim=-1, keepdim=True)
+                # Compute similarity scores (dot product) for the batch.
+                batch_similarity = (image_features @ text_features.T).squeeze(1)
+                batch_similarity = batch_similarity**2 - 1
+            scores += list(batch_similarity.cpu().numpy())
+        del next_images, processed_images, image_tensor
+        torch.cuda.empty_cache()
+        return scores
+
+    
+@hydra.main(config_path='/project_data/held/sreyas/RL-VLM-F/config/datagen_softgym.yaml', strict=True)
 def main(cfg):
+    print(cfg)
     print("Loading agent step: ", cfg.agent_load_step)
     print("Loading reward model step: ", cfg.reward_model_load_step)
     print("Epsilon: ", cfg.epsilon)
     workspace = DataGen(cfg)
+    workspace.process_and_relabel_data_multiple(cfg.dataset_dir)
     print("Save interval :", cfg.num_eval_episodes)
     print("Data collection completed , bye bye")
    

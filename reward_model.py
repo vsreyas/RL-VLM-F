@@ -143,6 +143,10 @@ class RewardModel:
                 flip_vlm_label=False,
                 save_query_interval=25,
                 cached_label_path=None,
+                use_gt_label=False,
+                flip_label=False,
+                prox_flip=False,
+                flip_percent=0.0,
 
                 # image based reward
                 reward_model_layers=3,
@@ -239,6 +243,10 @@ class RewardModel:
         self.flip_vlm_label = flip_vlm_label
         self.train_times = 0
         self.save_query_interval = save_query_interval
+        self.use_gt_label = use_gt_label
+        self.flip_label = flip_label
+        self.prox_flip = prox_flip
+        self.flip_percent = flip_percent
         
         
         self.cached_label_path = cached_label_path
@@ -921,8 +929,80 @@ class RewardModel:
                             img_t_2 = resized_img_t_2
                 else:
                     vlm_labels = []
+                    gt_labels = []
                 
             labels = vlm_labels
+            if self.use_gt_label:
+                labels = gt_labels
+            if self.flip_label and len(labels)>0:
+                if self.prox_flip:
+                    # Step 1: Extract states s1 and s2 from sa_1 and sa_2
+                    # Pick representative states for each sample
+                    s1 = sa_t_1[:, 0, :self.ds]  # First ds elements represent the state
+                    s2 = sa_t_2[:, 0, :self.ds]
+                    assert s1.shape[1] == self.ds
+                    assert s2.shape[1] == self.ds
+                    # print(sa_t_1)
+                    # print("Shape: ", sa_t_1.shape)
+                    # print("s1 shape", s1.shape)
+                    # Step 2: Process states based on the environment type
+                    if "Rope" in self.env_name: 
+                        dim_cons = 30 # Only the position of the keypoints are considered, the position of the pickers are ignored
+                        s1 = s1[:, :dim_cons]
+                        s2 = s2[:, :dim_cons]
+                        # print(s1)
+                        # print("s1 shape", s1.shape)
+                        # For "rope", each sample has 30 elements (10 points with x, y, z each).
+                        # Reshape to (batch, 10, 3) to compute the mean of each coordinate per sample.
+                        s1_reshaped = s1.reshape(-1, 10, 3)
+                        s2_reshaped = s2.reshape(-1, 10, 3)
+                        
+                        # Compute the mean along the points axis (axis=1) for each coordinate.
+                        s1_mean = np.mean(s1_reshaped, axis=1, keepdims=True)  # Shape: (batch, 1, 3)
+                        s2_mean = np.mean(s2_reshaped, axis=1, keepdims=True)
+                        
+                        # Normalize each sample by subtracting the mean for each coordinate.
+                        s1 = (s1_reshaped - s1_mean).reshape(-1, dim_cons)
+                        s2 = (s2_reshaped - s2_mean).reshape(-1, dim_cons)
+                        s_diff = s1 - s2
+
+                    elif "CartPole" in self.env_name:
+                        # For CartPole, ds is assumed to be 4.
+                        # Only take the 0th and 2nd indices; set the 1st and 3rd indices to 0.
+                        temp_s1 = np.zeros_like(s1)
+                        temp_s2 = np.zeros_like(s2)
+                        temp_s1[:, [0, 2]] = s1[:, [0, 2]]
+                        temp_s2[:, [0, 2]] = s2[:, [0, 2]]
+                        s_diff = temp_s1 - temp_s2
+                        s_diff[:, 0] = s_diff[:, 0]/9.6
+                        s_diff[:, 2] = s_diff[:, 2]/0.836
+
+                    elif "metaworld" in self.env_name:
+                        # For meta world, directly compute the difference.
+                        selected_indices = np.concatenate([np.arange(4, 18), np.arange(self.ds-3, self.ds)])
+                        # print("selected indices",selected_indices)
+                        s_diff = s1[:, selected_indices] - s2[:, selected_indices]
+                        # print("len of s_diff", s_diff.shape)
+                    else:
+                        raise NotImplementedError
+
+                    distance = np.linalg.norm(s_diff, axis=-1)  # Shape: (batch,)
+
+                    max_norm = 0.4  
+                    flip_prob = np.clip(1 - distance / max_norm, 0, 1)  
+
+                    random_vals = np.random.rand(flip_prob.shape[0])  
+                    flip_mask = random_vals < flip_prob  # True where label should be flipped
+                    labels.ravel()[flip_mask] = 1 - labels.ravel()[flip_mask]
+                    # print(labels)
+                else:
+                    total_elements = labels.size
+                    num_to_flip = int(total_elements * self.flip_percent)
+                    indices_to_flip = np.random.choice(total_elements, num_to_flip, replace=False)
+
+                    # Using a flat view to update the elements directly
+                    # labels.ravel()[indices_to_flip] = ~labels.ravel()[indices_to_flip]
+                    labels.ravel()[indices_to_flip] = 1 - labels.ravel()[indices_to_flip]
             
         if len(labels) > 0:
             if not self.image_reward:

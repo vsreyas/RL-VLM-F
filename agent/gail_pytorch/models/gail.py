@@ -185,14 +185,14 @@ class GAIL(Module):
                             done = True
                             break
                         
-                        if "drawer" in env_name:
+                        if "metaworld" in env_name:
                             if int(info["success"]) == 1:
                                 obj_to_target = obj_to_target + info["obj_to_target"]
                                 success = success + 1
                                 rwd_iter.append(np.sum(ep_rwds))
                                 break
 
-                    if int(info["success"]) != 1 and "drawer" in env_name:
+                    if int(info["success"]) != 1 and "metaworld" in env_name:
                         obj_to_target = obj_to_target + info["obj_to_target"]
                         rwd_iter.append(np.sum(ep_rwds))
                     elif done:
@@ -231,7 +231,7 @@ class GAIL(Module):
                 obj_to_target /= float(n_episodes)
                 rwd_iter_means.append(np.mean(rwd_iter))
                 
-                if "drawer" in env_name:
+                if "metaworld" in env_name:
                     wandb.log({"eval_score": np.mean(rwd_iter), "success_percent": success, "object_to_target_distance": obj_to_target})
                 else:
                     wandb.log({"eval_score": np.mean(rwd_iter), "success_percent": success})

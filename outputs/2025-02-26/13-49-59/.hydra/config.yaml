@@ -1,0 +1,39 @@
+activation: tanh
+agent:
+  params:
+    actor_lr: 0.0003
+    batch_size: 512
+    critic_lr: 0.0003
+dataset_dir: /project_data/held/sreyas/sim_data/datagen/drawer/datagen_drawer_open-Medium/old
+diag_gaussian_actor:
+  params:
+    hidden_depth: 3
+    hidden_dim: 256
+double_q_critic:
+  params:
+    hidden_depth: 3
+    hidden_dim: 256
+env: metaworld_drawer-open-v2
+exp_name: datagen_drawer_open-Medium
+feed_type: 0
+gradient_update: 1
+image_reward: 1
+max_feedback: 20000
+num_eval_episodes: 1000
+num_interact: 4000
+num_train_steps: 1000000
+num_unsup_steps: 9000
+reward: learn_from_preference
+reward_batch: 40
+reward_model_load_dir: /project_data/held/sreyas/RL-VLM-F/reward_models/Drawer_open
+reward_model_load_step: 999999
+reward_update: 10
+seed: 0
+segment: 1
+teacher_beta: -1
+teacher_eps_equal: 0
+teacher_eps_mistake: 0
+teacher_eps_skip: 0
+teacher_gamma: 1
+vlm: gemini_free_form
+vlm_label: 1

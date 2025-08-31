@@ -24,9 +24,9 @@ from agent.gail_pytorch.models.gail import GAIL
 
 from softgym.registered_env import env_arg_dict, SOFTGYM_ENVS
 from softgym.utils.normalized_env import normalize
-# from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE as env_dict
-# import metaworld
-# import metaworld.envs.mujoco.env_dict as _env_dict
+from metaworld.envs import ALL_V2_ENVIRONMENTS_GOAL_OBSERVABLE as env_dict
+import metaworld
+import metaworld.envs.mujoco.env_dict as _env_dict
 
 def make_softgym_env(cfg):
     env_name = cfg.env.replace('softgym_','')
@@ -47,13 +47,13 @@ class TrainConfig:
     eval_iter :int = 10 #Number of evaluations when running eval method
     eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    checkpoints_path: Optional[str] = "/project_data/held/sreyas/RL-VLM-F/gail/Cartpole"  # Save path
+    checkpoints_path: Optional[str] = "/project_data/held/sreyas/RL-VLM-F/gail/debug"  # Save path
     load_model: str =""   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
     # IQL
     normalize: bool = True  # Normalize states
     normalize_reward: bool = False  # Normalize reward
-    num_iters: int = 300
+    num_iters: int = 150
     horizon: Optional[int] = None
     lambda_: float = 0.01
     gae_gamma: float = 0.99
@@ -215,7 +215,7 @@ def main(config: TrainConfig):
     dataset = make_numpy(dataset)
     print(dataset.keys())
     print(dataset["rewards"])
-    
+    exit()
     if config.normalize_reward:
         modify_reward(dataset, config.env)
 

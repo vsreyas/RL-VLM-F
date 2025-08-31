@@ -527,7 +527,7 @@ class SawyerXYZEnv(SawyerMocapBase, EzPickle):
         self._prev_obs = obs[:18].copy()
         obs[18:36] = self._prev_obs
         obs = np.float64(obs)
-        return obs, info
+        return obs#, info
 
     def _reset_hand(self, steps=50):
         mocap_id = self.model.body_mocapid[self.data.body("mocap").id]

@@ -50,18 +50,21 @@ LOG_STD_MAX = 2.0
 class TrainConfig:
     # Experiment
     device: str = "cuda"
-    env: str = "metaworld_soccer-v2"  # OpenAI gym environment name
+    env: str = ""  # OpenAI gym environment name
     d4rl: Optional[bool] = False
-    data_set_path: Optional[str] = "/mnt/sda1/sreyas/sim_dataset/RopeFlattenEasy/ropeflatteneasy-expert.pkl"
+    data_set_path: Optional[str] = ""
+    nl: Optional[bool] = False
+    fl: Optional[str] = ""
     vlm_reward: Optional[bool] = False
     const_reward: Optional[float] = None
     average_reward: Optional[bool] = False
+    CLIP: Optional[bool] = False
     seed: int = 42  # Sets Gym, PyTorch and Numpy seeds
     eval_iter :int = 10 #Number of evaluations when running eval method
     eval_freq: int = int(500)  # How often (time steps) we evaluate -default 5000
     n_episodes: int = 10  # How many episodes run during evaluation
-    max_timesteps: int = int(200000)  # Max time steps to run environment - defualt int (1e6)
-    checkpoints_path: Optional[str] = "/home/sreyas/Desktop/RL-VLM-F/offline_rl/soccer"  # Save path
+    max_timesteps: int = int(100000)  # Max time steps to run environment - defualt int (1e6)
+    checkpoints_path: Optional[str] = "/project_data/held/sreyas/RL-VLM-F/NL"  # Save path
     load_model: str =""   # Model load file name, "" doesn't load
     render: bool = True #render and save outputs in eval
     # IQL
@@ -79,7 +82,7 @@ class TrainConfig:
     actor_lr: float = 3e-3  # Actor learning rate
     actor_dropout: Optional[float] = None  
     # Wandb logging
-    project: str = "ICRA2024-ropeflatteneasy-expert"
+    project: str = "CLIP"
     group: str = "metaworld"
     name: str = "IQL-"
 
@@ -617,7 +620,11 @@ def make_numpy(data:Dict, images = False):
 
 @pyrallis.wrap()
 def train(config: TrainConfig):
-    if config.vlm_reward:
+    if config.nl:
+        reward_key = "rewards_"+ config.fl
+        config.name = config.name + "-" + reward_key
+        
+    elif config.vlm_reward:
         config.name = config.name + "-vlm_reward" 
     elif config.const_reward is not None:
         config.name = config.name + '-const_reward-' + str(config.const_reward)
@@ -641,6 +648,7 @@ def train(config: TrainConfig):
         env = make_softgym_env(config)
     else:
         env = utils.make_env(config)
+    print(env)
     print(config.data_set_path)
     print(config.seed)
     print(config.vlm_reward)
@@ -655,13 +663,20 @@ def train(config: TrainConfig):
     else:
         with open(config.data_set_path, 'rb') as f:
             dataset = pkl.load(f)
-        if config.vlm_reward:
+        if config.nl:
+            print("using reward nl: ", reward_key)
+            dataset["rewards"] = dataset[reward_key]
+        elif config.vlm_reward:
             dataset["rewards"] = dataset["rewards_pred"]
         elif config.const_reward is not None:
             dataset["rewards"] = np.full_like(dataset["rewards"], config.const_reward)
         elif config.average_reward:
             print(np.mean(dataset["rewards"]))
             dataset["rewards"] = np.full_like(dataset["rewards"], np.mean(dataset["rewards"]))
+        elif config.CLIP:
+            print(np.mean(dataset["rewards"]))
+            print("Using CLIP Score as Rewards")
+            dataset["rewards"] = dataset["clip-score"]
 
     dataset = make_numpy(dataset)
     print(dataset.keys())

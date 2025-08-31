@@ -11,7 +11,7 @@ from reward_model import RewardModel
 from reward_model_score import RewardModelScore
 from collections import deque
 from prompt import clip_env_prompts
-
+from tqdm import tqdm
 import utils
 import hydra
 from PIL import Image
@@ -38,8 +38,8 @@ class Offline_Workspace(object):
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.log_success = False
-        with open(cfg.dataset_path, 'rb') as f:
-                self.dataset = pkl.load(f)
+        # with open(cfg.dataset_path, 'rb') as f:
+        #         self.dataset = pkl.load(f)
         
         current_file_path = os.path.dirname(os.path.realpath(__file__))
         os.system("cp {}/prompt.py {}/".format(current_file_path, self.logger._log_dir))
@@ -81,13 +81,13 @@ class Offline_Workspace(object):
         self.image_height = image_height
         self.image_width = image_width
 
-        self.replay_buffer = ReplayBuffer(
-            self.env.observation_space.shape,
-            self.env.action_space.shape,
-            int(cfg.replay_buffer_capacity) if not self.cfg.image_reward else 200000, # we cannot afford to store too many images in the replay buffer.
-            self.device,
-            store_image=self.cfg.image_reward,
-            image_size=image_height)
+        # self.replay_buffer = ReplayBuffer(
+        #     self.env.observation_space.shape,
+        #     self.env.action_space.shape,
+        #     int(cfg.replay_buffer_capacity) if not self.cfg.image_reward else 200000, # we cannot afford to store too many images in the replay buffer.
+        #     self.device,
+        #     store_image=self.cfg.image_reward,
+        #     image_size=image_height)
         
         # for logging
         self.total_feedback = 0
@@ -127,6 +127,10 @@ class Offline_Workspace(object):
             log_dir=self.logger._log_dir,
             flip_vlm_label=cfg.flip_vlm_label,
             cached_label_path=cfg.cached_label_path,
+            use_gt_label=cfg.use_gt_label,
+            flip_label=cfg.flip_label,
+            prox_flip=cfg.prox_flip,
+            flip_percent=cfg.flip_percent,
 
             ### image-based reward model parameters
             image_reward=cfg.image_reward,
@@ -143,11 +147,11 @@ class Offline_Workspace(object):
             print("loading reward model at {}".format(self.cfg.reward_model_load_dir))
             self.reward_model.load(self.cfg.reward_model_load_dir, 1000000) 
                 
-        if self.cfg.agent_model_load_dir != "None":
-            print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
-            self.agent.load(self.cfg.agent_model_load_dir, 1000000) 
+        # if self.cfg.agent_model_load_dir != "None":
+        #     print("loading agent model at {}".format(self.cfg.agent_model_load_dir))
+        #     self.agent.load(self.cfg.agent_model_load_dir, 1000000) 
         
-        self.load_dataset_to_buffer()
+        # self.load_dataset_to_buffer()
         
     def evaluate(self, save_additional=False):
         average_episode_reward = 0
@@ -315,7 +319,7 @@ class Offline_Workspace(object):
         reward_learning_acc = 0
         vlm_acc = 0
         eval_cnt = 0
-        while self.step < self.cfg.num_train_steps:
+        for self.step in tqdm(range(self.cfg.num_train_steps)):
             
             # update reward function
             if self.total_feedback < self.cfg.max_feedback and (
@@ -337,21 +341,23 @@ class Offline_Workspace(object):
                         self.reward_model.set_batch(self.cfg.max_feedback - self.total_feedback)
                         
                     reward_learning_acc, vlm_acc = self.learn_reward()
+                    print("reward learn", reward_learning_acc)
                     self.reward_model.eval()
-                    self.replay_buffer.relabel_with_predictor(self.reward_model)
+                    # self.replay_buffer.relabel_with_predictor(self.reward_model)
                     self.reward_model.train()
+                    interact_count = 0
                     
-            self.agent.update(self.replay_buffer, self.logger, self.step, 1)
+            # self.agent.update(self.replay_buffer, self.logger, self.step, 1)
             self.logger.log('train/reward_learning_acc', reward_learning_acc,
                         self.step)
             self.logger.log('train/vlm_acc', vlm_acc,self.step)
-            
+            interact_count += 1
 
             if self.step % self.cfg.save_interval == 0 and self.step > 0:
-                self.agent.save(model_save_dir, self.step)
+                # self.agent.save(model_save_dir, self.step)
                 self.reward_model.save(model_save_dir, self.step)
             
-        self.agent.save(model_save_dir, self.step)
+        # self.agent.save(model_save_dir, self.step)
         self.reward_model.save(model_save_dir, self.step)
     
     def load_dataset_to_buffer(self):
@@ -395,9 +401,9 @@ class Offline_Workspace(object):
                 
         print("Dataset loaded to buffer!!")
         
-@hydra.main(config_path='config/train_PEBBLE.yaml', strict=True)
+@hydra.main(config_path='config/train_PEBBLE_offline.yaml', strict=True)
 def main(cfg):
-    workspace = Workspace(cfg)
+    workspace = Offline_Workspace(cfg)
     print("Save interval :", cfg.save_interval)
     if cfg.mode == 'eval':
         workspace.evaluate(save_additional=cfg.save_images)
